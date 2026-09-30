@@ -223,8 +223,85 @@ Deletes a knowledge source record and cleans up any associated file from storage
 
 ---
 
+---
+
+## 7. Process Knowledge Source (Stage 3 Ingestion)
+
+Triggers the complete ingestion pipeline on an uploaded knowledge document: extraction -> cleaning -> chunking -> database storage.
+
+- **Method**: `POST`
+- **URL**: `/api/knowledge/:id/process`
+- **Authentication**: Required (`requireAuth`)
+
+### Processing Pipeline States
+`UPLOADING` → `EXTRACTING_CONTENT` → `CLEANING_CONTENT` → `CHUNKING` → `BUILDING_KNOWLEDGE` → `READY` (or `FAILED` + `errorMessage`)
+
+### Response `200 OK`
+```json
+{
+  "success": true,
+  "message": "Knowledge source processed successfully",
+  "data": {
+    "knowledgeSource": {
+      "id": "60c72b2f9b1d8b0015f89992",
+      "userId": "60c72b2f9b1d8b0015f89990",
+      "title": "DBMS Lecture 1",
+      "type": "PDF",
+      "status": "READY",
+      "errorMessage": null,
+      "metadata": {
+        "pageCount": 5,
+        "wordCount": 1420,
+        "chunkCount": 3
+      },
+      "createdAt": "2026-09-30T15:30:00.000Z",
+      "updatedAt": "2026-09-30T15:30:05.000Z"
+    },
+    "chunkCount": 3
+  }
+}
+```
+
+---
+
+## 8. Get Knowledge Chunks
+
+Retrieves all stored knowledge chunks for a knowledge source owned by the authenticated user, ordered by `chunkIndex: 1`.
+
+- **Method**: `GET`
+- **URL**: `/api/knowledge/:id/chunks`
+- **Authentication**: Required (`requireAuth`)
+
+### Response `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "chunks": [
+      {
+        "id": "60c72b2f9b1d8b0015f89993",
+        "userId": "60c72b2f9b1d8b0015f89990",
+        "knowledgeSourceId": "60c72b2f9b1d8b0015f89992",
+        "chunkIndex": 0,
+        "text": "Introduction to Relational Databases...",
+        "metadata": {
+          "page": 1,
+          "sourceType": "PDF",
+          "originalFileName": "lecture1.pdf"
+        },
+        "createdAt": "2026-09-30T15:30:05.000Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
 ## Security & Access Control Summary
 1. **Zero Trust Client Identity**: `userId` is strictly derived from verified JWT cookie (`req.user._id`), never from request bodies or parameters.
 2. **Strict Ownership Scoping**: Every database lookup queries both `{ _id: id, userId: req.user._id }`.
 3. **No Information Leakage**: Requests for another user's knowledge source return a generic `404 Not Found` without disclosing the resource's existence.
 4. **Isolated File Storage**: Uploads are saved into per-user directories (`backend/storage/uploads/{userId}/`) with non-guessable random hex filenames to prevent path traversal and collision.
+5. **Reprocessing Safety**: Old chunks are automatically deleted before inserting newly generated chunks to avoid orphan/duplicate entries.
+

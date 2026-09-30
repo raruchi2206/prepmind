@@ -6,6 +6,8 @@ const {
   getKnowledgeSource,
   updateKnowledgeSource,
   deleteKnowledgeSource,
+  processKnowledgeSource,
+  getKnowledgeChunks,
 } = require("../controllers/knowledgeController");
 const { requireAuth } = require("../middleware/authMiddleware");
 const { validate } = require("../middleware/validate");
@@ -30,5 +32,7 @@ router.patch(
   updateKnowledgeSource,
 );
 router.delete("/:id", deleteKnowledgeSource);
+router.post("/:id/process", processKnowledgeSource);
+router.get("/:id/chunks", getKnowledgeChunks);
 
 module.exports = router;

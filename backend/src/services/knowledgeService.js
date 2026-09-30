@@ -1,6 +1,7 @@
 const path = require("path");
 const fs = require("fs").promises;
 const KnowledgeSource = require("../models/KnowledgeSource");
+const KnowledgeChunk = require("../models/KnowledgeChunk");
 const { createHttpError } = require("../middleware/errorMiddleware");
 const { validateObjectId } = require("../utils/security");
 
@@ -84,6 +85,9 @@ async function deleteKnowledgeSource({ id, userId }) {
   if (!source) {
     throw createHttpError(404, "Knowledge source not found");
   }
+
+  // Delete associated KnowledgeChunks
+  await KnowledgeChunk.deleteMany({ knowledgeSourceId: id });
 
   // Safely cleanup physical file if it exists
   if (source.filePath) {

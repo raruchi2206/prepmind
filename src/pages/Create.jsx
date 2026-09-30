@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { KnowledgeSignal } from "../components/KnowledgeSignal";
+import { knowledgeApi } from "../services/api";
 
 const modes = [
   {
@@ -41,21 +42,43 @@ const modes = [
   },
 ];
 
-const knowledgeSources = [
-  { id: 1, title: "DBMS Notes", type: "PDF", meta: "42 pages" },
-  { id: 2, title: "AI/ML Lecture", type: "YouTube", meta: "38:42" },
-  { id: 3, title: "Operating Systems", type: "PPTX", meta: "56 slides" },
-  { id: 4, title: "DBMS Normalization", type: "YouTube", meta: "24:11" },
-];
-
 export default function Create({ theme }) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [mode, setMode] = useState(params.get("mode") || "summary");
-  const [selectedSources, setSelectedSources] = useState([1]);
+  const [knowledgeList, setKnowledgeList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSources, setSelectedSources] = useState([]);
   const [instruction, setInstruction] = useState("");
 
   const light = theme === "light";
+
+  useEffect(() => {
+    async function loadSources() {
+      try {
+        const res = await knowledgeApi.getAll();
+        const sources = res?.data?.knowledgeSources || [];
+        setKnowledgeList(sources);
+
+        const initialKnowledgeParam = params.get("knowledge");
+        if (initialKnowledgeParam) {
+          const match = sources.find((s) => s.id === initialKnowledgeParam);
+          if (match) {
+            setSelectedSources([match.id]);
+          } else if (sources.length > 0) {
+            setSelectedSources([sources[0].id]);
+          }
+        } else if (sources.length > 0) {
+          setSelectedSources([sources[0].id]);
+        }
+      } catch (err) {
+        console.error("Create page failed to load knowledge sources:", err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadSources();
+  }, [params]);
 
   const toggleSource = (id) => {
     setSelectedSources((prev) =>
@@ -89,7 +112,7 @@ export default function Create({ theme }) {
           <div className="mt-4 flex items-center gap-3">
             <KnowledgeSignal size={20} animated light={light} />
             <p className="text-sm text-[var(--text-secondary)]">
-              Powered by your knowledge base
+              Powered by your uploaded knowledge sources
             </p>
           </div>
         </div>
@@ -142,57 +165,90 @@ export default function Create({ theme }) {
 
         {mode && mode !== "ask" && (
           <div className="mb-6 animate-fade-in-up">
-            <p className="section-label">Choose knowledge</p>
-            <div className="mt-4 space-y-3">
-              {knowledgeSources.map((source) => (
-                <button
-                  key={source.id}
-                  type="button"
-                  onClick={() => toggleSource(source.id)}
-                  className="flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition-all"
-                  style={{
-                    background: selectedSources.includes(source.id)
-                      ? "var(--surface-elevated)"
-                      : "var(--surface)",
-                    borderColor: selectedSources.includes(source.id)
-                      ? "var(--ring)"
-                      : "var(--border)",
-                  }}
-                >
-                  <div
-                    className="flex h-5 w-5 items-center justify-center rounded-md border"
-                    style={{
-                      borderColor: selectedSources.includes(source.id)
-                        ? "var(--accent)"
-                        : "var(--border)",
-                      background: selectedSources.includes(source.id)
-                        ? "var(--accent)"
-                        : "transparent",
-                    }}
-                  >
-                    {selectedSources.includes(source.id) && (
-                      <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                        <path
-                          d="M1.5 4.2L3.8 6.5L8.5 1.8"
-                          stroke={light ? "#1F150C" : "#17130F"}
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-base text-[var(--text-primary)]">
-                      {source.title}
-                    </p>
-                    <p className="mt-1 font-mono text-[0.58rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
-                      {source.type} · {source.meta}
-                    </p>
-                  </div>
-                </button>
-              ))}
+            <div className="flex items-center justify-between">
+              <p className="section-label">Choose knowledge</p>
+              <Link
+                to="/knowledge"
+                className="text-xs text-[var(--accent)] hover:underline"
+              >
+                + Upload new source
+              </Link>
             </div>
+
+            {loading ? (
+              <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-6 text-center text-xs text-[var(--text-secondary)]">
+                Loading knowledge sources...
+              </div>
+            ) : knowledgeList.length === 0 ? (
+              <div className="mt-4 rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface-elevated)] p-8 text-center">
+                <p className="text-sm font-medium text-[var(--text-primary)]">
+                  No knowledge sources available
+                </p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                  Upload a document first to generate AI assessments from it.
+                </p>
+                <Link to="/knowledge" className="btn btn-primary btn-sm mt-4 inline-flex">
+                  Go to Knowledge →
+                </Link>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {knowledgeList.map((source) => {
+                  const chunkCount = source.metadata?.chunkCount ?? 0;
+                  const pageCount = source.metadata?.pageCount ?? 0;
+                  const metaText = pageCount > 0 ? `${pageCount} pages · ${chunkCount} chunks` : `${chunkCount} chunks`;
+
+                  return (
+                    <button
+                      key={source.id}
+                      type="button"
+                      onClick={() => toggleSource(source.id)}
+                      className="flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition-all"
+                      style={{
+                        background: selectedSources.includes(source.id)
+                          ? "var(--surface-elevated)"
+                          : "var(--surface)",
+                        borderColor: selectedSources.includes(source.id)
+                          ? "var(--ring)"
+                          : "var(--border)",
+                      }}
+                    >
+                      <div
+                        className="flex h-5 w-5 items-center justify-center rounded-md border"
+                        style={{
+                          borderColor: selectedSources.includes(source.id)
+                            ? "var(--accent)"
+                            : "var(--border)",
+                          background: selectedSources.includes(source.id)
+                            ? "var(--accent)"
+                            : "transparent",
+                        }}
+                      >
+                        {selectedSources.includes(source.id) && (
+                          <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                            <path
+                              d="M1.5 4.2L3.8 6.5L8.5 1.8"
+                              stroke={light ? "#1F150C" : "#17130F"}
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-base font-medium text-[var(--text-primary)] truncate">
+                          {source.title}
+                        </p>
+                        <p className="mt-1 font-mono text-[0.58rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
+                          {source.type} · {metaText} · {source.status}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -203,12 +259,12 @@ export default function Create({ theme }) {
               value={instruction}
               onChange={(e) => setInstruction(e.target.value)}
               rows={3}
-              placeholder="Focus mainly on normalization."
+              placeholder="Focus mainly on key definitions and core concepts."
               className="mt-4 w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-3 text-base text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
             />
             <div className="mt-3 flex flex-wrap gap-2">
               {[
-                "Focus mainly on normalization.",
+                "Focus mainly on core concepts.",
                 "Create difficult questions.",
                 "Explain this for exam preparation.",
               ].map((example) => (

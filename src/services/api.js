@@ -118,4 +118,9 @@ export const knowledgeApi = {
     apiRequest(`/knowledge/${id}`, {
       method: "DELETE",
     }),
+  process: (id) =>
+    apiRequest(`/knowledge/${id}/process`, {
+      method: "POST",
+    }),
+  getChunks: (id) => apiRequest(`/knowledge/${id}/chunks`),
 };

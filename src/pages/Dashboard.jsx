@@ -1,5 +1,8 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { KnowledgeSignal } from "../components/KnowledgeSignal";
+import { useAuth } from "../context/AuthContext";
+import { knowledgeApi } from "../services/api";
 
 const recentActivity = [
   {
@@ -65,27 +68,6 @@ const capabilities = [
   },
 ];
 
-const knowledge = [
-  {
-    title: "DBMS Notes",
-    type: "PDF",
-    meta: "42 pages · 8 topics",
-    tone: "Ready",
-  },
-  {
-    title: "AI/ML Lecture",
-    type: "YouTube",
-    meta: "38:42 · 6 topics",
-    tone: "Ready",
-  },
-  {
-    title: "Operating Systems",
-    type: "PPTX",
-    meta: "56 slides · 10 topics",
-    tone: "Ready",
-  },
-];
-
 const progress = [
   { label: "Normalization", value: 82 },
   { label: "Transactions", value: 64 },
@@ -94,10 +76,33 @@ const progress = [
 ];
 
 export default function Dashboard({ theme }) {
+  const { user } = useAuth();
   const light = theme === "light";
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  const [knowledgeList, setKnowledgeList] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadKnowledge() {
+      try {
+        const res = await knowledgeApi.getAll();
+        setKnowledgeList(res?.data?.knowledgeSources || []);
+      } catch (err) {
+        console.error("Dashboard failed to load knowledge:", err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadKnowledge();
+  }, []);
+
+  const totalChunks = knowledgeList.reduce(
+    (acc, k) => acc + (k.metadata?.chunkCount || 0),
+    0,
+  );
 
   return (
     <div
@@ -107,7 +112,7 @@ export default function Dashboard({ theme }) {
       <div className="page-inner">
         <header className="mb-6 animate-fade-in-up">
           <p className="section-label">Dashboard</p>
-          <h1 className="page-title mt-4">{greeting}, Ruchi.</h1>
+          <h1 className="page-title mt-4">{greeting}, {user?.name || "Student"}.</h1>
           <p className="page-subtitle mt-3">
             What do you want to prepare today?
           </p>
@@ -119,15 +124,21 @@ export default function Dashboard({ theme }) {
         >
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="section-label">Your knowledge is ready</p>
+              <p className="section-label">
+                {knowledgeList.length > 0 ? "Your knowledge is ready" : "Knowledge Base"}
+              </p>
               <h2
                 className="mt-3 text-3xl leading-tight text-[var(--text-primary)]"
                 style={{ fontFamily: "Fraunces, Georgia, serif" }}
               >
-                Create from your knowledge.
+                {knowledgeList.length > 0
+                  ? "Create from your knowledge."
+                  : "Upload your study documents."}
               </h2>
               <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                12 documents · 3 videos · 48 topics
+                {knowledgeList.length > 0
+                  ? `${knowledgeList.length} ${knowledgeList.length === 1 ? "source" : "sources"} · ${totalChunks} chunks indexed`
+                  : "Upload PDF, DOCX, PPTX, or TXT documents to power your AI assessment."}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -154,19 +165,15 @@ export default function Dashboard({ theme }) {
             <div className="min-w-0">
               <p className="section-label">PrepMind recommendation</p>
               <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                Your recent quizzes suggest{" "}
-                <strong className="text-[var(--text-primary)]">
-                  Transactions
-                </strong>{" "}
-                needs more practice.
+                Keep your revision sharp with targeted quizzes and viva drills.
               </p>
             </div>
           </div>
           <Link
-            to="/create?mode=quiz&topic=transactions"
+            to="/create?mode=quiz"
             className="btn btn-secondary btn-sm whitespace-nowrap"
           >
-            Practice this topic →
+            Practice quiz →
           </Link>
         </section>
 
@@ -177,42 +184,66 @@ export default function Dashboard({ theme }) {
                 <p className="section-label">Your knowledge</p>
                 <Link
                   to="/knowledge"
-                  className="text-[0.62rem] uppercase tracking-[0.15em] text-[var(--text-secondary)]"
+                  className="text-[0.62rem] uppercase tracking-[0.15em] text-[var(--text-secondary)] hover:underline"
                 >
                   View all →
                 </Link>
               </div>
 
-              <div className="space-y-3">
-                {knowledge.map((item) => (
-                  <div
-                    key={item.title}
-                    className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-[var(--text-primary)]">
-                          {item.title}
-                        </span>
-                        <span className="font-mono text-[0.56rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
-                          {item.type}
-                        </span>
+              {loading ? (
+                <p className="py-6 text-center text-xs text-[var(--text-secondary)]">
+                  Loading knowledge sources...
+                </p>
+              ) : knowledgeList.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface-elevated)] p-6 text-center">
+                  <p className="text-sm text-[var(--text-primary)] font-medium">
+                    No knowledge sources yet
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                    Upload documents to power assessments and revision.
+                  </p>
+                  <Link to="/knowledge" className="btn btn-primary btn-sm mt-4 inline-flex">
+                    + Add Knowledge
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {knowledgeList.slice(0, 4).map((item) => {
+                    const chunkCount = item.metadata?.chunkCount ?? 0;
+                    const pageCount = item.metadata?.pageCount ?? 0;
+                    const metaText = pageCount > 0 ? `${pageCount} pages · ${chunkCount} chunks` : `${chunkCount} chunks`;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-[var(--text-primary)]">
+                              {item.title}
+                            </span>
+                            <span className="font-mono text-[0.56rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
+                              {item.type}
+                            </span>
+                          </div>
+                          <p className="mt-2 font-mono text-[0.56rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
+                            {metaText}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 self-start sm:self-auto">
+                          <span className={`status-pill ${item.status === "READY" ? "ready" : "neutral"}`}>
+                            {item.status}
+                          </span>
+                          <Link to={`/knowledge/${item.id}`} className="btn btn-ghost btn-sm">
+                            View
+                          </Link>
+                        </div>
                       </div>
-                      <p className="mt-2 font-mono text-[0.56rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
-                        {item.meta}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 self-start sm:self-auto">
-                      <span className="rounded-full border border-[var(--border)] px-2 py-1 font-mono text-[0.5rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
-                        {item.tone}
-                      </span>
-                      <Link to="/knowledge" className="btn btn-ghost btn-sm">
-                        View
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </section>
 
             <section className="panel p-4 sm:p-5">

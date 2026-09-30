@@ -56,7 +56,7 @@ describe("PREPMIND Stage 2 — Knowledge Management Test Suite", () => {
   let createdSourceId;
 
   before(async () => {
-    if (mongoose.connection.readyState === 0) {
+    if (mongoose.connection.readyState !== 1) {
       await mongoose.connect(env.MONGODB_URI, { dbName: "prepmind_test" });
     }
 
@@ -96,8 +96,9 @@ describe("PREPMIND Stage 2 — Knowledge Management Test Suite", () => {
   after(async () => {
     await User.deleteMany({ email: /@knowledgetest\.com$/ });
     await KnowledgeSource.deleteMany({});
-    await new Promise((resolve) => server.close(resolve));
-    await mongoose.disconnect();
+    if (server) {
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 
   // ==========================================

@@ -1,4 +1,5 @@
 const knowledgeService = require("../services/knowledgeService");
+const knowledgeIngestionService = require("../services/knowledgeIngestionService");
 const { createHttpError } = require("../middleware/errorMiddleware");
 
 async function createKnowledgeSource(request, response, next) {
@@ -102,6 +103,37 @@ async function deleteKnowledgeSource(request, response, next) {
   }
 }
 
+async function processKnowledgeSource(request, response, next) {
+  try {
+    const result = await knowledgeIngestionService.processKnowledgeSource(
+      request.params.id,
+      request.user._id,
+    );
+    response.json({
+      success: true,
+      message: "Knowledge source processed successfully",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getKnowledgeChunks(request, response, next) {
+  try {
+    const chunks = await knowledgeIngestionService.getKnowledgeChunks(
+      request.params.id,
+      request.user._id,
+    );
+    response.json({
+      success: true,
+      data: { chunks },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createKnowledgeSource,
   uploadKnowledgeSource,
@@ -109,4 +141,6 @@ module.exports = {
   getKnowledgeSource,
   updateKnowledgeSource,
   deleteKnowledgeSource,
+  processKnowledgeSource,
+  getKnowledgeChunks,
 };
