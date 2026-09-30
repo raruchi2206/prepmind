@@ -1,12 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
-const USER = {
-  name: "Ruchi Navinchandra",
-  email: "ruchi@email.com",
-  plan: "Free Plan",
-  initials: "RN",
-};
 const focusTopics = [
   ["Normalization", 82],
   ["Transactions", 64],
@@ -174,6 +169,7 @@ function SettingsRow({
 
 export default function Profile({ theme, onThemeToggle, onSetTheme }) {
   const navigate = useNavigate();
+  const { user, updateProfile, logout } = useAuth();
   const light = theme === "light";
   const colors = {
     surface: light ? "#FFFFFF" : "#14100C",
@@ -188,14 +184,19 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profile, setProfile] = useState({
-    name: USER.name,
-    email: USER.email,
+    name: user?.name || "",
+    email: user?.email || "",
   });
+  const [profileError, setProfileError] = useState("");
   const [password, setPassword] = useState({
     current: "",
     next: "",
     confirm: "",
   });
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [profileSubmitting, setProfileSubmitting] = useState(false);
   const currentTheme = light ? "light" : "dark";
   const themeOptions = [
     { label: "Light", value: "light" },
@@ -207,6 +208,61 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
     if (onSetTheme) onSetTheme(value);
     else if (value !== "system" && value !== currentTheme) onThemeToggle();
     setAppearanceOpen(false);
+  };
+
+  const initials = (user?.name || "User")
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  const handleProfileSave = async () => {
+    try {
+      setProfileError("");
+      setProfileSubmitting(true);
+      await updateProfile({ name: profile.name });
+      setEditOpen(false);
+    } catch (error) {
+      setProfileError(error.message);
+    } finally {
+      setProfileSubmitting(false);
+    }
+  };
+
+  const handlePasswordSave = async () => {
+    setPasswordError("");
+    setPasswordSuccess("");
+    if (!password.current) {
+      setPasswordError("Please enter your current password.");
+      return;
+    }
+    if (password.next.length < 8) {
+      setPasswordError("New password must be at least 8 characters long.");
+      return;
+    }
+    if (password.next !== password.confirm) {
+      setPasswordError("New passwords do not match.");
+      return;
+    }
+    setPasswordSubmitting(true);
+    try {
+      await authApi.changePassword({
+        currentPassword: password.current,
+        newPassword: password.next,
+        confirmPassword: password.confirm,
+      });
+      setPasswordSuccess("Password changed successfully.");
+      setPassword({ current: "", next: "", confirm: "" });
+      setTimeout(() => {
+        setPasswordOpen(false);
+        setPasswordSuccess("");
+      }, 1500);
+    } catch (error) {
+      setPasswordError(error.message || "Failed to change password.");
+    } finally {
+      setPasswordSubmitting(false);
+    }
   };
 
   return (
@@ -245,7 +301,7 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
                   color: colors.accent,
                 }}
               >
-                {USER.initials}
+                {user?.avatar || initials}
               </div>
               <div>
                 <h2
@@ -261,7 +317,7 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
                   className="mt-2 text-[0.76rem] font-medium uppercase tracking-[0.12em]"
                   style={{ color: colors.muted }}
                 >
-                  {USER.plan}
+                  Free Plan
                 </p>
               </div>
             </div>
@@ -488,7 +544,10 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
               </p>
               <button
                 type="button"
-                onClick={() => navigate("/login")}
+                onClick={async () => {
+                  await logout();
+                  navigate("/login", { replace: true });
+                }}
                 className="mt-4 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors hover:border-[#D14A4A] hover:text-[#D14A4A]"
                 style={{ borderColor: colors.border, color: colors.muted }}
               >
@@ -507,6 +566,14 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
           colors={colors}
         >
           <div className="mt-5 space-y-4">
+            {profileError && (
+              <p
+                role="alert"
+                className="rounded-xl border border-[#A84B43]/40 bg-[#A84B43]/10 px-3 py-2 text-sm text-[#C97B70]"
+              >
+                {profileError}
+              </p>
+            )}
             {[
               ["Full name", "name"],
               ["Email", "email"],
@@ -519,6 +586,7 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
                   {label}
                 </label>
                 <input
+                  disabled={key === "email"}
                   value={profile[key]}
                   onChange={(event) =>
                     setProfile((current) => ({
@@ -547,7 +615,7 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
             </button>
             <button
               type="button"
-              onClick={() => setEditOpen(false)}
+              onClick={handleProfileSave}
               className="rounded-xl px-4 py-2.5 text-sm font-semibold"
               style={{
                 background: colors.accent,
@@ -562,10 +630,30 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
       {passwordOpen && (
         <Modal
           title="Change password"
-          onClose={() => setPasswordOpen(false)}
+          onClose={() => {
+            setPasswordOpen(false);
+            setPasswordError("");
+            setPasswordSuccess("");
+          }}
           colors={colors}
         >
           <div className="mt-5 space-y-4">
+            {passwordError && (
+              <p
+                role="alert"
+                className="rounded-xl border border-[#A84B43]/40 bg-[#A84B43]/10 px-3 py-2 text-sm text-[#C97B70]"
+              >
+                {passwordError}
+              </p>
+            )}
+            {passwordSuccess && (
+              <p
+                role="status"
+                className="rounded-xl border border-[#488456]/40 bg-[#488456]/10 px-3 py-2 text-sm text-[#66B87B]"
+              >
+                {passwordSuccess}
+              </p>
+            )}
             {[
               ["Current password", "current"],
               ["New password", "next"],
@@ -600,22 +688,27 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
           <div className="mt-6 flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setPasswordOpen(false)}
+              onClick={() => {
+                setPasswordOpen(false);
+                setPasswordError("");
+                setPasswordSuccess("");
+              }}
               className="rounded-xl px-4 py-2.5 text-sm"
               style={{ color: colors.muted }}
             >
               Cancel
             </button>
             <button
+              disabled={passwordSubmitting}
               type="button"
-              onClick={() => setPasswordOpen(false)}
-              className="rounded-xl px-4 py-2.5 text-sm font-semibold"
+              onClick={handlePasswordSave}
+              className="rounded-xl px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
               style={{
                 background: colors.accent,
                 color: light ? "#FFFFFF" : "#17130F",
               }}
             >
-              Update password →
+              {passwordSubmitting ? "Updating..." : "Update password →"}
             </button>
           </div>
         </Modal>

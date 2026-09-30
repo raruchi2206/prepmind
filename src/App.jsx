@@ -7,8 +7,16 @@ import {
   useLocation,
 } from "react-router-dom";
 import { Navigation } from "./components/Navigation";
+import ProtectedRoute from "./components/ProtectedRoute";
+import { AuthProvider } from "./context/AuthContext";
 import Landing from "./pages/Landing";
-import { Login, Signup, ForgotPassword } from "./pages/Auth";
+import {
+  Login,
+  Signup,
+  ForgotPassword,
+  VerifyOTP,
+  ResetPassword,
+} from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Knowledge, { KnowledgeDetail } from "./pages/Knowledge";
 import Create from "./pages/Create";
@@ -58,42 +66,50 @@ function AppShell({ theme, onThemeToggle, onSetTheme }) {
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login theme={theme} />} />
         <Route path="/signup" element={<Signup theme={theme} />} />
+        <Route path="/register" element={<Signup theme={theme} />} />
         <Route
           path="/forgot-password"
           element={<ForgotPassword theme={theme} />}
         />
-        <Route path="/dashboard" element={<Dashboard theme={theme} />} />
-        <Route path="/knowledge" element={<Knowledge theme={theme} />} />
+        <Route path="/verify-otp" element={<VerifyOTP theme={theme} />} />
         <Route
-          path="/knowledge/:id"
-          element={<KnowledgeDetail theme={theme} />}
+          path="/reset-password"
+          element={<ResetPassword theme={theme} />}
         />
-        <Route path="/create" element={<Create theme={theme} />} />
-        <Route path="/summary" element={<Summary theme={theme} />} />
-        <Route path="/notes" element={<Notes theme={theme} />} />
-        <Route path="/quiz" element={<Quiz theme={theme} />} />
-        <Route
-          path="/practice-paper"
-          element={<PracticePaper theme={theme} />}
-        />
-        <Route path="/viva" element={<Viva theme={theme} />} />
-        <Route
-          path="/viva/transcript"
-          element={<VivaTranscriptPage theme={theme} />}
-        />
-        <Route path="/ask" element={<Ask theme={theme} />} />
-        <Route path="/history" element={<History theme={theme} />} />
-        <Route path="/progress" element={<Progress theme={theme} />} />
-        <Route
-          path="/profile"
-          element={
-            <Profile
-              theme={theme}
-              onThemeToggle={onThemeToggle}
-              onSetTheme={onSetTheme}
-            />
-          }
-        />
+        <Route element={<ProtectedRoute />}>
+          <Route path="/dashboard" element={<Dashboard theme={theme} />} />
+          <Route path="/knowledge" element={<Knowledge theme={theme} />} />
+          <Route
+            path="/knowledge/:id"
+            element={<KnowledgeDetail theme={theme} />}
+          />
+          <Route path="/create" element={<Create theme={theme} />} />
+          <Route path="/summary" element={<Summary theme={theme} />} />
+          <Route path="/notes" element={<Notes theme={theme} />} />
+          <Route path="/quiz" element={<Quiz theme={theme} />} />
+          <Route
+            path="/practice-paper"
+            element={<PracticePaper theme={theme} />}
+          />
+          <Route path="/viva" element={<Viva theme={theme} />} />
+          <Route
+            path="/viva/transcript"
+            element={<VivaTranscriptPage theme={theme} />}
+          />
+          <Route path="/ask" element={<Ask theme={theme} />} />
+          <Route path="/history" element={<History theme={theme} />} />
+          <Route path="/progress" element={<Progress theme={theme} />} />
+          <Route
+            path="/profile"
+            element={
+              <Profile
+                theme={theme}
+                onThemeToggle={onThemeToggle}
+                onSetTheme={onSetTheme}
+              />
+            }
+          />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
@@ -130,11 +146,13 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <AppShell
-        theme={theme}
-        onThemeToggle={toggleTheme}
-        onSetTheme={setThemeMode}
-      />
+      <AuthProvider>
+        <AppShell
+          theme={theme}
+          onThemeToggle={toggleTheme}
+          onSetTheme={setThemeMode}
+        />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

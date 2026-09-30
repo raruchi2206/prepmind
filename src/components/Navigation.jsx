@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { KnowledgeSignal } from "./KnowledgeSignal";
-
-const USER = { name: "Ruchi Navinchandra", initials: "RN" };
+import { useAuth } from "../context/AuthContext";
 
 function BellIcon() {
   return (
@@ -44,6 +43,7 @@ function SunIcon() {
 
 export function Navigation({ theme, onThemeToggle }) {
   const location = useLocation();
+  const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const light = theme === "light";
@@ -53,6 +53,13 @@ export function Navigation({ theme, onThemeToggle }) {
     { label: "History", path: "/history" },
     { label: "Progress", path: "/progress" },
   ];
+  const name = user?.name || "Profile";
+  const initials = name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <nav
@@ -168,10 +175,10 @@ export function Navigation({ theme, onThemeToggle }) {
             aria-label="Open profile"
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--accent)] text-[0.72rem] font-semibold text-[var(--accent-foreground)]">
-              {USER.initials}
+              {user?.avatar || initials}
             </span>
             <span className="hidden text-[0.92rem] font-medium text-[var(--text-primary)] xl:inline-block">
-              {USER.name.split(" ")[0]}
+              {name.split(" ")[0]}
             </span>
             <span className="hidden text-[var(--text-secondary)] sm:block">
               ↗
