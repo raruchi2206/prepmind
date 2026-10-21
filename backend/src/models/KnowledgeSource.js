@@ -16,7 +16,7 @@ const knowledgeSourceSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["PDF", "PPTX", "DOCX", "TXT", "YOUTUBE"],
+      enum: ["PDF", "IMAGE", "PPTX", "PPT", "DOCX", "DOC", "TXT", "YOUTUBE"],
       required: true,
     },
     originalFileName: {

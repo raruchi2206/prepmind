@@ -26,11 +26,13 @@ async function uploadKnowledgeSource(request, response, next) {
     if (!request.file) {
       throw createHttpError(400, "Please provide a document file to upload");
     }
+    console.log("[KNOWLEDGE]\nUpload started");
     const source = await knowledgeService.createUploadedKnowledgeSource({
       userId: request.user._id,
       title: request.body.title,
       file: request.file,
     });
+    console.log("[KNOWLEDGE]\nSource created");
     response.status(201).json({
       success: true,
       message: "Document uploaded successfully",
@@ -134,6 +136,35 @@ async function getKnowledgeChunks(request, response, next) {
   }
 }
 
+async function reindexKnowledgeSource(request, response, next) {
+  try {
+    const result = await knowledgeService.reindexKnowledgeSource({
+      id: request.params.id,
+      userId: request.user._id,
+    });
+    response.json({
+      success: true,
+      message: "Knowledge source reindexed successfully",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function reindexAllSources(request, response, next) {
+  try {
+    const results = await knowledgeService.reindexAllSources(request.user._id);
+    response.json({
+      success: true,
+      message: "All knowledge sources reindexed successfully",
+      data: { results },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createKnowledgeSource,
   uploadKnowledgeSource,
@@ -143,4 +174,6 @@ module.exports = {
   deleteKnowledgeSource,
   processKnowledgeSource,
   getKnowledgeChunks,
+  reindexKnowledgeSource,
+  reindexAllSources,
 };

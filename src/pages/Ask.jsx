@@ -1,88 +1,70 @@
-import { useState, useRef, useEffect } from 'react';
-import { KnowledgeSignal } from '../components/KnowledgeSignal';
+import { useState, useRef, useEffect } from "react";
+import { useSearchParams, Link } from "react-router-dom";
+import { KnowledgeSignal } from "../components/KnowledgeSignal";
+import { ragApi, knowledgeApi } from "../services/api";
 
-const prompts = [
-  'Explain 3NF with an example.',
-  'Summarize chapter on indexing.',
-  'What are the most important exam topics?',
-  'Compare 2NF and 3NF.',
-  'What did the video explain about indexing?',
-];
+function Message({ role, text, sources, light, insufficientContext, generationTimeSeconds }) {
+  const border = light
+    ? "border-[rgba(65,45,21,0.1)]"
+    : "border-[rgba(225,220,201,0.08)]";
+  const muted = light
+    ? "text-[rgba(0,0,0,0.6)]"
+    : "text-[rgba(225,220,201,0.6)]";
+  const sub = light
+    ? "text-[rgba(0,0,0,0.4)]"
+    : "text-[rgba(225,220,201,0.4)]";
 
-const sampleAnswers = {
-  default: {
-    text: `**Third Normal Form (3NF)** states that a relation is in 3NF if:
-1. It is in 2NF
-2. No non-prime attribute is transitively dependent on the primary key
-
-**Example:** Consider EMPLOYEE(EmpID, EmpName, DeptID, DeptName, DeptHead).
-
-Here, EmpID → DeptID → DeptName creates a transitive dependency (DeptName depends on DeptID, not directly on EmpID). This violates 3NF.
-
-**To normalize to 3NF:**
-- EMPLOYEE(EmpID, EmpName, DeptID)
-- DEPARTMENT(DeptID, DeptName, DeptHead)
-
-Now every non-prime attribute depends directly on the primary key only.`,
-    source: 'DBMS Notes.pdf',
-    page: 'Pages 14–16',
-    topic: 'Normalization',
-    confidence: 0.94,
-  },
-};
-
-function Message({ role, text, source, page, topic, confidence, light }) {
-  const border = light ? 'border-[rgba(65,45,21,0.1)]' : 'border-[rgba(225,220,201,0.08)]';
-  const muted = light ? 'text-[rgba(0,0,0,0.4)]' : 'text-[rgba(225,220,201,0.4)]';
-  const sub = light ? 'text-[rgba(0,0,0,0.25)]' : 'text-[rgba(225,220,201,0.25)]';
-
-  if (role === 'user') {
+  if (role === "user") {
     return (
       <div className="flex justify-end mb-4">
-        <div className={`max-w-md px-4 py-3 rounded-sm border text-sm font-body ${border}`}
-          style={{ background: light ? '#E1DCC9' : '#1F150C' }}>
+        <div
+          className={`max-w-xl px-4 py-3 rounded-xl border text-sm font-body ${border}`}
+          style={{ background: light ? "#E1DCC9" : "#1F150C" }}
+        >
           {text}
         </div>
       </div>
     );
   }
 
-  const lines = text.split('\n');
   return (
     <div className="flex gap-3 mb-6">
       <div className="flex-shrink-0 mt-1">
         <KnowledgeSignal size={24} animated light={light} />
       </div>
-      <div className="flex-1">
-        <p className={`font-mono text-[9px] tracking-widest mb-2 ${sub}`}>PREPMIND</p>
-        <div className={`p-4 border rounded-sm mb-3 ${border}`} style={{ background: light ? '#fff' : '#0A0703' }}>
-          <div className="text-sm font-body leading-relaxed space-y-2">
-            {lines.map((line, i) => {
-              if (line.startsWith('**') && line.endsWith('**')) {
-                return <p key={i} className="font-mono text-[10px] tracking-wide opacity-80">{line.slice(2,-2)}</p>;
-              }
-              if (line.match(/^\d\./)) {
-                return <p key={i} className={`flex gap-2 ${muted}`}>
-                  <span className="flex-shrink-0 font-mono text-[10px]">{line[0]}.</span>
-                  <span>{line.slice(2)}</span>
-                </p>;
-              }
-              if (line.startsWith('-')) {
-                return <p key={i} className={`flex gap-2 ml-3 ${muted}`}>
-                  <span>·</span><span>{line.slice(2)}</span>
-                </p>;
-              }
-              if (line.trim() === '') return <div key={i} className="h-1" />;
-              return <p key={i} className="opacity-80">{line}</p>;
-            })}
+      <div className="flex-1 max-w-2xl">
+        <div className="flex items-center justify-between mb-2">
+          <p className={`font-mono text-[9px] tracking-widest ${sub}`}>
+            {insufficientContext ? "PREPMIND RAG · INSUFFICIENT CONTEXT" : "PREPMIND RAG"}
+          </p>
+          {generationTimeSeconds && (
+            <span className="font-mono text-[9px] text-[var(--text-secondary)] opacity-70">
+              ⏱ {generationTimeSeconds}s
+            </span>
+          )}
+        </div>
+        <div
+          className={`p-5 border rounded-xl mb-3 ${border} ${
+            insufficientContext ? "border-amber-500/40 bg-amber-500/5" : ""
+          }`}
+          style={{ background: insufficientContext ? undefined : light ? "#fff" : "#0A0703" }}
+        >
+          <div className="text-sm font-body leading-relaxed whitespace-pre-wrap">
+            {text}
           </div>
         </div>
-        {source && (
-          <div className={`flex flex-wrap gap-2 items-center text-[9px] font-mono ${sub}`}>
-            <span className={`px-2 py-1 rounded-sm border ${border}`}>📄 {source}</span>
-            {page && <span className={`px-2 py-1 rounded-sm border ${border}`}>{page}</span>}
-            {topic && <span className={`px-2 py-1 rounded-sm border ${border}`}>{topic}</span>}
-            {confidence && <span className="opacity-50">{Math.round(confidence * 100)}% confidence</span>}
+
+        {sources && sources.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-center text-[10px] font-mono mt-2">
+            <span className={sub}>Grounding Sources:</span>
+            {sources.map((s, idx) => (
+              <span
+                key={idx}
+                className={`px-2.5 py-1 rounded-md border ${border} bg-[var(--surface-elevated)] text-[var(--text-secondary)]`}
+              >
+                📄 {s.label || s.title}
+              </span>
+            ))}
           </div>
         )}
       </div>
@@ -91,45 +73,154 @@ function Message({ role, text, source, page, topic, confidence, light }) {
 }
 
 export default function Ask({ theme }) {
+  const [searchParams] = useSearchParams();
+  const initialKs = searchParams.get("knowledge");
+
+  const [sources, setSources] = useState([]);
+  const [selectedKsIds, setSelectedKsIds] = useState(
+    initialKs ? [initialKs] : []
+  );
+  const [conversationId, setConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const endRef = useRef(null);
-  const light = theme === 'light';
-  const border = light ? 'border-[rgba(65,45,21,0.1)]' : 'border-[rgba(225,220,201,0.08)]';
-  const muted = light ? 'text-[rgba(0,0,0,0.4)]' : 'text-[rgba(225,220,201,0.4)]';
-  const sub = light ? 'text-[rgba(0,0,0,0.25)]' : 'text-[rgba(225,220,201,0.25)]';
+  const light = theme === "light";
+  const border = light
+    ? "border-[rgba(65,45,21,0.1)]"
+    : "border-[rgba(225,220,201,0.08)]";
+  const sub = light
+    ? "text-[rgba(0,0,0,0.4)]"
+    : "text-[rgba(225,220,201,0.4)]";
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => {
+    async function loadSources() {
+      try {
+        const res = await knowledgeApi.getAll();
+        const list = res?.data?.knowledgeSources || [];
+        setSources(list);
+        if (list.length > 0 && selectedKsIds.length === 0) {
+          setSelectedKsIds([list[0].id]);
+        }
+      } catch (err) {
+        console.warn("Could not fetch knowledge sources:", err.message);
+      }
+    }
+    loadSources();
+  }, []);
 
-  const handleSend = (text = input) => {
-    if (!text.trim()) return;
-    const userMsg = { role: 'user', text };
-    setMessages(prev => [...prev, userMsg]);
-    setInput('');
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  const handleSend = async (textToSend = input) => {
+    const q = (textToSend || "").trim();
+    if (!q || loading) return;
+
+    const userMsg = { role: "user", text: q };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
     setLoading(true);
-    setTimeout(() => {
-      const ans = sampleAnswers.default;
-      setMessages(prev => [...prev, { role: 'assistant', ...ans }]);
+    setError("");
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Request timed out after 90 seconds. Please try asking again.")), 90000)
+    );
+
+    const startTime = Date.now();
+    try {
+      const askPromise = ragApi.ask({
+        query: q,
+        knowledgeSourceIds: selectedKsIds.length > 0 ? selectedKsIds : null,
+        conversationId: conversationId || undefined,
+      });
+
+      const res = await Promise.race([askPromise, timeoutPromise]);
+      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+      const data = res?.data || {};
+      if (data.conversationId) {
+        setConversationId(data.conversationId);
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: data.answer || "No response generated.",
+          sources: data.sources || [],
+          insufficientContext: Boolean(data.insufficientContext),
+          generationTimeSeconds: duration,
+        },
+      ]);
+    } catch (err) {
+      setError(err.message || "Failed to generate AI response.");
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: `⚠️ ${err.message || "Could not retrieve knowledge"}`,
+          sources: [],
+          insufficientContext: false,
+        },
+      ]);
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
 
   const isEmpty = messages.length === 0;
 
   return (
-    <div className="min-h-screen pt-14 flex flex-col" style={{ background: light ? '#F8F7F3' : '#000' }}>
-      {/* Header */}
-      <div className="px-6 py-4 border-b flex items-center gap-3" style={{ borderColor: light ? 'rgba(65,45,21,0.1)' : 'rgba(225,220,201,0.08)' }}>
-        <KnowledgeSignal size={20} animated light={light} />
-        <div>
-          <p className="font-display text-sm font-light">ASK PREPMIND</p>
-          <p className={`text-[9px] font-mono ${sub}`}>Ask anything about your selected knowledge</p>
+    <div
+      className="min-h-screen pt-14 flex flex-col"
+      style={{ background: light ? "#F8F7F3" : "#000" }}
+    >
+      {/* Header & Source Filter */}
+      <div
+        className="px-6 py-4 border-b flex flex-wrap items-center justify-between gap-3"
+        style={{
+          borderColor: light
+            ? "rgba(65,45,21,0.1)"
+            : "rgba(225,220,201,0.08)",
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <KnowledgeSignal size={20} animated light={light} />
+          <div>
+            <p className="font-display text-sm font-light">ASK PREPMIND</p>
+            <p className={`text-[9px] font-mono ${sub}`}>
+              RAG-Grounded AI Knowledge Retrieval
+            </p>
+          </div>
         </div>
-        <div className="ml-auto flex flex-wrap gap-2">
-          {['DBMS Notes.pdf', 'DBMS YouTube'].map((s, i) => (
-            <span key={i} className={`text-[9px] font-mono px-2 py-1 rounded-sm border ${border}`}>{s}</span>
-          ))}
+
+        {/* Source Selector */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-[10px] font-mono ${sub}`}>Source:</span>
+          {sources.length === 0 ? (
+            <Link
+              to="/knowledge"
+              className="text-[10px] font-mono text-amber-500 hover:underline"
+            >
+              + Upload Knowledge First
+            </Link>
+          ) : (
+            <select
+              value={selectedKsIds[0] || ""}
+              onChange={(e) =>
+                setSelectedKsIds(e.target.value ? [e.target.value] : [])
+              }
+              className={`text-xs px-2.5 py-1.5 rounded-lg border bg-[var(--surface-elevated)] text-[var(--text-primary)] ${border}`}
+            >
+              <option value="">All Uploaded Knowledge Sources</option>
+              {sources.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.title} ({s.type})
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -137,20 +228,36 @@ export default function Ask({ theme }) {
       <div className="flex-1 overflow-y-auto px-6 py-8">
         <div className="max-w-3xl mx-auto">
           {isEmpty && (
-            <div className="flex flex-col items-center justify-center h-64 gap-8">
-              <KnowledgeSignal size={80} animated light={light} />
-              <div className="text-center">
-                <p className="font-display text-2xl font-light mb-2">Ask about your knowledge</p>
-                <p className={`text-xs font-body ${muted}`}>Get cited, source-backed answers from your uploaded material.</p>
+            <div className="flex flex-col items-center justify-center h-80 gap-6">
+              <KnowledgeSignal size={70} animated light={light} />
+              <div className="text-center max-w-md">
+                <p className="font-display text-2xl font-light mb-2">
+                  Ask about your knowledge
+                </p>
+                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                  Ask questions, request explanations, or clarify concepts.
+                  PrepMind answers exclusively from your uploaded documents with
+                  verifiable citations.
+                </p>
               </div>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {prompts.map((p, i) => (
-                  <button key={i} onClick={() => handleSend(p)}
-                    className={`text-[10px] font-body px-3 py-1.5 border rounded-sm transition-all ${border} ${light ? 'hover:bg-[#E1DCC9]' : 'hover:bg-[#1F150C]'} opacity-60 hover:opacity-100`}>
-                    {p}
-                  </button>
-                ))}
-              </div>
+
+              {sources.length > 0 && (
+                <div className="flex flex-wrap gap-2 justify-center max-w-lg">
+                  {[
+                    "What are the main concepts in this document?",
+                    "Summarize the key definitions and formulas.",
+                    "Explain the core mechanisms step by step.",
+                  ].map((p, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleSend(p)}
+                      className={`text-[11px] font-body px-3.5 py-2 border rounded-lg transition-all ${border} bg-[var(--surface)] hover:bg-[var(--surface-elevated)] text-[var(--text-primary)]`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -161,47 +268,70 @@ export default function Ask({ theme }) {
           {loading && (
             <div className="flex gap-3 mb-6">
               <KnowledgeSignal size={24} animated light={light} />
-              <div className={`p-4 border rounded-sm ${border}`} style={{ background: light ? '#fff' : '#0A0703' }}>
-                <div className="flex gap-1 items-center">
-                  {[0, 1, 2].map(i => (
-                    <div key={i} className="w-1.5 h-1.5 rounded-full" style={{ background: light ? '#412D15' : '#E1DCC9', animation: `dots 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+              <div
+                className={`p-4 border rounded-xl ${border}`}
+                style={{ background: light ? "#fff" : "#0A0703" }}
+              >
+                <div className="flex gap-1.5 items-center">
+                  {[0, 1, 2].map((i) => (
+                    <div
+                      key={i}
+                      className="w-2 h-2 rounded-full animate-bounce"
+                      style={{
+                        background: light ? "#412D15" : "#E1DCC9",
+                        animationDelay: `${i * 0.15}s`,
+                      }}
+                    />
                   ))}
+                  <span className="text-xs ml-2 text-[var(--text-secondary)] font-mono">
+                    Searching FAISS & generating answer...
+                  </span>
                 </div>
               </div>
             </div>
           )}
+
+          {error && (
+            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
+              {error}
+            </div>
+          )}
+
           <div ref={endRef} />
         </div>
       </div>
 
-      {/* Input */}
-      <div className="px-6 py-4 border-t" style={{ borderColor: light ? 'rgba(65,45,21,0.1)' : 'rgba(225,220,201,0.08)' }}>
+      {/* Input Form */}
+      <div
+        className="px-6 py-4 border-t"
+        style={{
+          borderColor: light
+            ? "rgba(65,45,21,0.1)"
+            : "rgba(225,220,201,0.08)",
+        }}
+      >
         <div className="max-w-3xl mx-auto">
-          {!isEmpty && (
-            <div className="flex flex-wrap gap-2 mb-3">
-              {prompts.slice(0, 3).map((p, i) => (
-                <button key={i} onClick={() => handleSend(p)}
-                  className={`text-[9px] font-body px-2.5 py-1 border rounded-sm transition-all ${border} opacity-40 hover:opacity-70`}>
-                  {p}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="flex gap-3">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend();
+            }}
+            className="flex gap-3"
+          >
             <input
               value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder="Ask PrepMind anything..."
-              className={`flex-1 bg-transparent border rounded-sm px-4 py-3 text-sm font-body focus:outline-none transition-colors ${border}`}
-              style={{ '--tw-placeholder-opacity': 0.3 }}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask a question about your uploaded documents..."
+              className={`flex-1 bg-[var(--surface-elevated)] border rounded-xl px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] transition-all ${border}`}
             />
-            <button onClick={() => handleSend()}
+            <button
+              type="submit"
               disabled={!input.trim() || loading}
-              className={`px-5 py-3 text-xs font-body rounded-sm transition-all disabled:opacity-30 ${light ? 'bg-[#412D15] text-white hover:bg-[#1F150C]' : 'bg-[#E1DCC9] text-black hover:bg-white'}`}>
-              ASK →
+              className="btn btn-primary px-6 py-3 text-xs whitespace-nowrap"
+            >
+              {loading ? "Searching..." : "Ask →"}
             </button>
-          </div>
+          </form>
         </div>
       </div>
     </div>

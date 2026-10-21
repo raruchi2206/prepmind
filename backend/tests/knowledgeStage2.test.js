@@ -14,8 +14,11 @@ const User = require("../src/models/User");
 const KnowledgeSource = require("../src/models/KnowledgeSource");
 const { createAccessToken } = require("../src/services/tokenService");
 
+const { MongoMemoryServer } = require("mongodb-memory-server");
+
 let server;
 let baseUrl;
+let mongod;
 
 async function request(path, options = {}) {
   const url = `${baseUrl}${path}`;
@@ -56,8 +59,14 @@ describe("PREPMIND Stage 2 — Knowledge Management Test Suite", () => {
   let createdSourceId;
 
   before(async () => {
-    if (mongoose.connection.readyState !== 1) {
-      await mongoose.connect(env.MONGODB_URI, { dbName: "prepmind_test" });
+    try {
+      if (mongoose.connection.readyState !== 1) {
+        await mongoose.connect(env.MONGODB_URI, { dbName: "prepmind_test", serverSelectionTimeoutMS: 4000 });
+      }
+    } catch (err) {
+      console.log(`[TEST SETUP] Remote Atlas unavailable (${err.message}). Using MongoMemoryServer...`);
+      mongod = await MongoMemoryServer.create();
+      await mongoose.connect(mongod.getUri());
     }
 
     // Clean test data
@@ -368,5 +377,10 @@ describe("PREPMIND Stage 2 — Knowledge Management Test Suite", () => {
       body: { title: "Test", type: "PDF" },
     });
     assert.equal(resPost.status, 401);
+  });
+
+  after(async () => {
+    if (server) await new Promise((resolve) => server.close(resolve));
+    if (mongod) await mongod.stop();
   });
 });

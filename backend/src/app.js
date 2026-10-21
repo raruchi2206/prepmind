@@ -9,6 +9,10 @@ const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const knowledgeRoutes = require("./routes/knowledgeRoutes");
+const ragRoutes = require("./routes/ragRoutes");
+const aiRoutes = require("./routes/aiRoutes");
+const historyRoutes = require("./routes/historyRoutes");
+const progressRoutes = require("./routes/progressRoutes");
 const {
   notFoundHandler,
   errorHandler,
@@ -45,21 +49,33 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(express.json({ limit: "50kb" }));
+app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
 app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
 
-app.get("/api/health", (request, response) =>
-  response.json({
+const { isDatabaseConnected } = require("./config/db");
+
+app.get("/api/health", (request, response) => {
+  const dbOk = isDatabaseConnected();
+  response.status(dbOk ? 200 : 503).json({
     success: true,
-    data: { service: "prepmind-api", status: "ok" },
-  }),
-);
+    data: {
+      service: "prepmind-api",
+      status: dbOk ? "ok" : "degraded",
+      database: dbOk ? "connected" : "disconnected",
+    },
+  });
+});
+
 
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/knowledge", knowledgeRoutes);
+app.use("/api/rag", ragRoutes);
+app.use("/api/ai", aiRoutes);
+app.use("/api/history", historyRoutes);
+app.use("/api/progress", progressRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

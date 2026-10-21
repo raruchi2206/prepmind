@@ -7,7 +7,9 @@ const { createHttpError } = require("./errorMiddleware");
 
 async function requireAuth(request, response, next) {
   try {
-    const token = request.cookies[ACCESS_COOKIE];
+    const authHeader = request.headers.authorization;
+    const bearerToken = authHeader && authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const token = request.cookies?.[ACCESS_COOKIE] || bearerToken;
     if (!token) {
       throw createHttpError(401, "Authentication required");
     }

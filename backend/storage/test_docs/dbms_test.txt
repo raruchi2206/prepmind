@@ -1,0 +1,7 @@
+Database Management Systems (DBMS) - Relational Normalization
+1. Normalization is the process of structuring relational database schemas to minimize data redundancy and prevent insertion, update, and deletion anomalies.
+2. First Normal Form (1NF) requires all attribute values to be atomic and indivisible.
+3. Second Normal Form (2NF) is achieved when the relation is in 1NF and no non-prime attribute is partially dependent on any candidate key.
+4. Third Normal Form (3NF) eliminates transitive functional dependencies, ensuring every non-prime attribute depends directly only on candidate keys.
+5. Boyce-Codd Normal Form (BCNF) is a stricter normal form where every determinant must be a candidate key.
+6. ACID Properties guarantee reliable transactions: Atomicity ensures all-or-nothing execution, Consistency maintains integrity constraints, Isolation prevents concurrent race conditions, and Durability ensures committed updates persist.

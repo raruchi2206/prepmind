@@ -1,0 +1,6 @@
+Cloud Computing and Microservices Architecture:
+Cloud computing delivers computing services over the internet including servers, storage, databases, networking, and software.
+The three primary cloud service models are Infrastructure as a Service (IaaS), Platform as a Service (PaaS), and Software as a Service (SaaS).
+Microservices architecture arranges an application as a collection of loosely coupled, fine-grained services communicating through lightweight protocols.
+Containerization using Docker packages an application and its dependencies into an isolated container that runs uniformly across diverse environments.
+Kubernetes is an open-source system for automating deployment, scaling, and management of containerized applications.

@@ -1,68 +1,127 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { KnowledgeSignal } from "../components/KnowledgeSignal";
+import { ragApi, knowledgeApi } from "../services/api";
+import { generatePracticePaperPDF, generatePracticeSolutionsPDF } from "../utils/pdfGenerator";
 
-const paperQuestions = [
-  { section: 'A', marks: 2, q: 'Define normalization and state its objectives.' },
-  { section: 'A', marks: 2, q: 'What is a functional dependency? Give one example.' },
-  { section: 'A', marks: 2, q: 'Define ACID properties in brief.' },
-  { section: 'A', marks: 2, q: 'What is an index? Name two types of indexes.' },
-  { section: 'B', marks: 5, q: 'Explain the differences between 2NF and 3NF with appropriate examples. Show the step-by-step normalization of a relation from 1NF to 3NF.' },
-  { section: 'B', marks: 5, q: 'Describe transaction management in DBMS. Explain how rollback and commit operations maintain database consistency.' },
-  { section: 'B', marks: 5, q: 'Compare clustered and non-clustered indexes. When would you choose one over the other in query optimization?' },
-  { section: 'C', marks: 10, q: 'A university database has the following relation: ENROLLMENT(StudentID, StudentName, CourseID, CourseName, InstructorID, InstructorName, Grade). Identify all functional dependencies and normalize this relation to BCNF. Justify each step with the relevant normal form violation and decomposition.' },
-  { section: 'C', marks: 10, q: 'Design a relational database schema for a hospital management system. Include at least 5 relations, define primary and foreign keys, and normalize all relations to 3NF. Explain any trade-offs you encountered during normalization.' },
-];
+function PaperSetup({ theme, sources, onGenerate, loading, error }) {
+  const [searchParams] = useSearchParams();
+  const initialKs = searchParams.get("knowledge");
 
-function PaperSetup({ theme, onStart }) {
-  const [marks, setMarks] = useState(50);
-  const [duration, setDuration] = useState(90);
-  const [difficulty, setDifficulty] = useState('medium');
-  const light = theme === 'light';
-  const border = light ? 'border-[rgba(65,45,21,0.1)]' : 'border-[rgba(225,220,201,0.08)]';
-  const muted = light ? 'text-[rgba(0,0,0,0.4)]' : 'text-[rgba(225,220,201,0.4)]';
-  const sub = light ? 'text-[rgba(0,0,0,0.25)]' : 'text-[rgba(225,220,201,0.25)]';
+  const [selectedKs, setSelectedKs] = useState(
+    initialKs || (sources[0]?.id || "")
+  );
+  const [totalMarks, setTotalMarks] = useState(50);
+  const [difficulty, setDifficulty] = useState("Medium");
+
+  useEffect(() => {
+    if (sources.length > 0 && !selectedKs) {
+      setSelectedKs(sources[0].id);
+    }
+  }, [sources, selectedKs]);
+
+  const light = theme === "light";
+  const border = light
+    ? "border-[rgba(65,45,21,0.1)]"
+    : "border-[rgba(225,220,201,0.08)]";
 
   return (
-    <div className="min-h-screen pt-14" style={{ background: light ? '#F8F7F3' : '#000' }}>
+    <div
+      className="min-h-screen pt-14 page-shell"
+      style={{ background: light ? "#F8F7F3" : "#000" }}
+    >
       <div className="max-w-2xl mx-auto px-6 py-12">
         <div className="animate-fade-in-up">
-          <p className={`font-mono text-[10px] tracking-widest mb-1 ${sub}`}>GENERATE</p>
-          <h1 className="font-display text-4xl font-light mb-8">Practice Paper</h1>
+          <p className="section-label mb-1">EXAMINATION ENGINE</p>
+          <h1 className="font-display text-4xl font-light mb-8">
+            Practice Paper Setup
+          </h1>
+
+          {error && (
+            <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-400">
+              {error}
+            </div>
+          )}
+
           <div className="space-y-5">
-            {[
-              { label: 'TOTAL MARKS', opts: [25, 50, 75, 100], val: marks, set: setMarks },
-              { label: 'DURATION (MIN)', opts: [30, 60, 90, 120], val: duration, set: setDuration },
-            ].map(({ label, opts, val, set }) => (
-              <div key={label} className={`p-5 border rounded-sm ${border}`} style={{ background: light ? '#fff' : '#0A0703' }}>
-                <p className={`font-mono text-[9px] tracking-widest mb-3 ${sub}`}>{label}</p>
-                <div className="flex gap-2">
-                  {opts.map(o => (
-                    <button key={o} onClick={() => set(o)}
-                      className={`w-16 h-10 text-xs font-mono rounded-sm transition-all ${
-                        val === o
-                          ? light ? 'bg-[#412D15] text-white' : 'bg-[#E1DCC9] text-black'
-                          : `border ${border} opacity-50 hover:opacity-100`
-                      }`}>{o}</button>
-                  ))}
+            <div className={`p-5 border rounded-xl ${border} panel`}>
+              <p className="section-label mb-3">SELECT KNOWLEDGE SOURCE</p>
+              {sources.length === 0 ? (
+                <div className="text-sm text-[var(--text-secondary)]">
+                  No uploaded knowledge sources found.{" "}
+                  <Link to="/knowledge" className="text-amber-500 hover:underline">
+                    Upload document →
+                  </Link>
                 </div>
-              </div>
-            ))}
-            <div className={`p-5 border rounded-sm ${border}`} style={{ background: light ? '#fff' : '#0A0703' }}>
-              <p className={`font-mono text-[9px] tracking-widest mb-3 ${sub}`}>DIFFICULTY</p>
+              ) : (
+                <select
+                  id="paper-source-select"
+                  value={selectedKs}
+                  onChange={(e) => setSelectedKs(e.target.value)}
+                  className="w-full text-sm px-3 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--text-primary)]"
+                >
+                  {sources.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title} ({s.type} · {s.metadata?.chunkCount || 0} chunks)
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div className={`p-5 border rounded-xl ${border} panel`}>
+              <p className="section-label mb-3">TOTAL MARKS</p>
               <div className="flex gap-2">
-                {['easy', 'medium', 'hard'].map(d => (
-                  <button key={d} onClick={() => setDifficulty(d)}
-                    className={`px-4 py-2 text-[9px] font-mono tracking-wide rounded-sm transition-all ${
-                      difficulty === d
-                        ? light ? 'bg-[#412D15] text-white' : 'bg-[#E1DCC9] text-black'
-                        : `border ${border} opacity-50 hover:opacity-100`
-                    }`}>{d.toUpperCase()}</button>
+                {[20, 30, 50, 100].map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setTotalMarks(m)}
+                    className={`w-16 h-10 text-xs font-mono rounded-lg transition-all cursor-pointer ${
+                      totalMarks === m
+                        ? "btn-primary"
+                        : "border border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--text-primary)]"
+                    }`}
+                  >
+                    {m}M
+                  </button>
                 ))}
               </div>
             </div>
-            <button onClick={onStart}
-              className={`w-full py-4 text-sm font-body tracking-wide rounded-sm transition-all group ${light ? 'bg-[#412D15] text-white hover:bg-[#1F150C]' : 'bg-[#E1DCC9] text-black hover:bg-white'}`}>
-              GENERATE PRACTICE PAPER <span className="group-hover:translate-x-1 inline-block transition-transform">→</span>
+
+            <div className={`p-5 border rounded-xl ${border} panel`}>
+              <p className="section-label mb-3">DIFFICULTY</p>
+              <div className="flex gap-2">
+                {["Easy", "Medium", "Hard", "Mixed"].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDifficulty(d)}
+                    className={`px-4 py-2 text-xs font-mono rounded-lg transition-all cursor-pointer ${
+                      difficulty === d
+                        ? "btn-primary"
+                        : "border border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--text-primary)]"
+                    }`}
+                  >
+                    {d.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              id="generate-paper-btn"
+              onClick={() =>
+                onGenerate({
+                  knowledgeSourceId: selectedKs,
+                  totalMarks,
+                  difficulty,
+                })
+              }
+              disabled={loading || !selectedKs}
+              className="w-full py-4 text-sm font-body tracking-wide rounded-xl btn-primary transition-all disabled:opacity-30 cursor-pointer"
+            >
+              {loading ? "Generating Structured Exam Paper via RAG..." : "GENERATE PRACTICE PAPER →"}
             </button>
           </div>
         </div>
@@ -71,143 +130,282 @@ function PaperSetup({ theme, onStart }) {
   );
 }
 
-function PaperExperience({ theme, onSubmit }) {
+function PaperExperience({
+  assessment,
+  sourceTitle,
+  theme,
+  onSubmit,
+  submitting,
+  onDownloadQuestionPDF,
+  onDownloadSolutionsPDF,
+}) {
   const [answers, setAnswers] = useState({});
-  const [timeLeft, setTimeLeft] = useState(5400);
-  const formatTime = s => `${Math.floor(s / 3600).toString().padStart(2,'0')}:${Math.floor((s%3600)/60).toString().padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  const [showSolutions, setShowSolutions] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(
+    (assessment.timeAllowedMinutes || 90) * 60
+  );
+
+  const formatTime = (s) =>
+    `${Math.floor(s / 3600)
+      .toString()
+      .padStart(2, "0")}:${Math.floor((s % 3600) / 60)
+      .toString()
+      .padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
   useEffect(() => {
-    const t = setInterval(() => setTimeLeft(s => s > 0 ? s - 1 : 0), 1000);
+    const t = setInterval(
+      () => setTimeLeft((s) => (s > 0 ? s - 1 : 0)),
+      1000
+    );
     return () => clearInterval(t);
   }, []);
 
-  const light = theme === 'light';
-  const border = light ? 'border-[rgba(65,45,21,0.1)]' : 'border-[rgba(225,220,201,0.08)]';
-  const muted = light ? 'text-[rgba(0,0,0,0.4)]' : 'text-[rgba(225,220,201,0.4)]';
-  const sub = light ? 'text-[rgba(0,0,0,0.25)]' : 'text-[rgba(225,220,201,0.25)]';
+  const light = theme === "light";
+  const border = light
+    ? "border-[rgba(65,45,21,0.1)]"
+    : "border-[rgba(225,220,201,0.08)]";
 
-  const sections = ['A', 'B', 'C'];
+  const handleFinish = () => {
+    const answersList = [];
+    (assessment.sections || []).forEach((sec) => {
+      (sec.questions || []).forEach((q) => {
+        answersList.push({
+          questionId: q.id,
+          userAnswer: answers[q.id] || "",
+        });
+      });
+    });
+    const timeSpent =
+      (assessment.timeAllowedMinutes || 90) * 60 - timeLeft;
+    onSubmit(answersList, timeSpent);
+  };
 
   return (
-    <div className="min-h-screen" style={{ background: light ? '#F8F7F3' : '#000' }}>
-      <div className="sticky top-0 z-10 px-6 py-3 border-b flex items-center justify-between"
-        style={{ background: light ? 'rgba(248,247,243,0.95)' : 'rgba(0,0,0,0.95)', backdropFilter: 'blur(8px)', borderColor: light ? 'rgba(65,45,21,0.1)' : 'rgba(225,220,201,0.08)' }}>
-        <span className="font-display text-sm font-light">DATABASE MANAGEMENT SYSTEMS — PRACTICE PAPER</span>
-        <div className="flex items-center gap-6">
-          <span className={`font-mono text-xs ${muted}`}>50 Marks · {formatTime(timeLeft)}</span>
+    <div
+      className="min-h-screen page-shell"
+      style={{ background: light ? "#F8F7F3" : "#000" }}
+    >
+      {/* Top sticky bar */}
+      <div
+        className="sticky top-0 z-10 px-6 py-3 border-b flex flex-wrap items-center justify-between gap-3"
+        style={{
+          background: light
+            ? "rgba(248,247,243,0.95)"
+            : "rgba(0,0,0,0.95)",
+          backdropFilter: "blur(8px)",
+          borderColor: light
+            ? "rgba(65,45,21,0.1)"
+            : "rgba(225,220,201,0.08)",
+        }}
+      >
+        <span className="font-display text-sm font-medium truncate max-w-md text-[var(--text-primary)]">
+          {assessment.title}
+        </span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs text-[var(--text-secondary)]">
+            Total: {assessment.totalMarks} Marks · ⏱ {formatTime(timeLeft)}
+          </span>
+          <button
+            id="download-paper-pdf-top"
+            onClick={onDownloadQuestionPDF}
+            className="btn btn-secondary btn-sm flex items-center gap-1.5 font-mono text-xs cursor-pointer"
+            title="Download printable Question Paper PDF without solutions"
+          >
+            📥 Question Paper PDF
+          </button>
+          <button
+            id="toggle-solutions-btn"
+            onClick={() => setShowSolutions(!showSolutions)}
+            className="btn btn-ghost btn-sm font-mono text-xs cursor-pointer"
+          >
+            {showSolutions ? "Hide Solutions" : "View Solutions"}
+          </button>
+          {showSolutions && (
+            <button
+              id="download-solutions-pdf-top"
+              onClick={onDownloadSolutionsPDF}
+              className="btn btn-primary btn-sm flex items-center gap-1.5 font-mono text-xs cursor-pointer"
+            >
+              📥 Solutions PDF
+            </button>
+          )}
         </div>
       </div>
 
       <div className="max-w-3xl mx-auto px-6 py-8">
-        <div className="mb-6 p-4 border rounded-sm" style={{ background: light ? '#fff' : '#0A0703', borderColor: light ? 'rgba(65,45,21,0.1)' : 'rgba(225,220,201,0.08)' }}>
-          <p className={`text-[10px] font-mono ${muted}`}>Subject: DBMS · Total Marks: 50 · Time: 90 min</p>
-          <p className={`text-[10px] font-mono mt-1 ${sub}`}>Section A: 4×2 = 8 marks · Section B: 3×5 = 15 marks · Section C: 2×10 = 20 marks</p>
-        </div>
-
-        {sections.map(sec => (
-          <div key={sec} className="mb-8">
+        {(assessment.sections || []).map((sec, sIdx) => (
+          <div key={sIdx} className="mb-8">
             <div className="flex items-center gap-3 mb-4">
-              <span className="font-display text-lg font-light">Section {sec}</span>
-              <div className="flex-1 h-px" style={{ background: light ? 'rgba(65,45,21,0.08)' : 'rgba(225,220,201,0.06)' }} />
+              <h3 className="font-display text-xl font-medium text-[var(--text-primary)]">
+                {sec.sectionName || `SECTION ${String.fromCharCode(65 + sIdx)}`}
+              </h3>
+              <div
+                className="flex-1 h-px"
+                style={{
+                  background: light
+                    ? "rgba(65,45,21,0.08)"
+                    : "rgba(225,220,201,0.06)",
+                }}
+              />
             </div>
+            {sec.instructions && (
+              <p className="text-xs font-mono text-[var(--text-secondary)] mb-4">
+                {sec.instructions}
+              </p>
+            )}
             <div className="space-y-4">
-              {paperQuestions
-                .filter(q => q.section === sec)
-                .map((q, i) => {
-                  const key = `${sec}-${i}`;
-                  return (
-                    <div key={key} className={`p-5 border rounded-sm ${border}`} style={{ background: light ? '#fff' : '#0A0703' }}>
-                      <div className="flex justify-between mb-3">
-                        <span className={`font-mono text-[9px] ${sub}`}>Q{i + 1}</span>
-                        <span className={`font-mono text-[9px] ${sub}`}>[{q.marks} marks]</span>
-                      </div>
-                      <p className="text-sm font-body leading-relaxed mb-4">{q.q}</p>
-                      <textarea
-                        rows={q.marks >= 10 ? 8 : q.marks >= 5 ? 5 : 3}
-                        value={answers[key] || ''}
-                        onChange={e => setAnswers(prev => ({ ...prev, [key]: e.target.value }))}
-                        placeholder="Write your answer here..."
-                        className={`w-full bg-transparent border rounded-sm px-4 py-3 text-xs font-body resize-none focus:outline-none transition-colors ${border}`}
-                        style={{ '--tw-placeholder-opacity': 0.2 }}
-                      />
+              {(sec.questions || []).map((q, qIdx) => {
+                const qId = q.id || `${sIdx}-${qIdx}`;
+                return (
+                  <div
+                    key={qId}
+                    className={`panel p-6 border rounded-xl ${border}`}
+                  >
+                    <div className="flex justify-between mb-3 text-[var(--text-secondary)]">
+                      <span className="font-mono text-xs font-medium">
+                        Q{qIdx + 1} ({q.type})
+                      </span>
+                      <span className="font-mono text-xs">
+                        [{q.marks || sec.marksPerQuestion || 5} marks]
+                      </span>
                     </div>
-                  );
-                })}
+                    <p className="text-sm font-body leading-relaxed mb-4 text-[var(--text-primary)]">
+                      {q.question}
+                    </p>
+
+                    {q.type === "MCQ" && q.options ? (
+                      <div className="space-y-2">
+                        {q.options.map((opt, oIdx) => (
+                          <button
+                            key={oIdx}
+                            type="button"
+                            onClick={() =>
+                              setAnswers((prev) => ({ ...prev, [qId]: opt }))
+                            }
+                            className={`w-full text-left p-3 rounded-lg border text-xs transition-all cursor-pointer ${
+                              answers[qId] === opt
+                                ? "border-[var(--accent)] bg-[var(--surface-elevated)] ring-1 ring-[var(--accent)]"
+                                : `${border} bg-[var(--surface)] hover:bg-[var(--surface-elevated)]`
+                            }`}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <textarea
+                        rows={q.marks >= 10 ? 6 : 3}
+                        value={answers[qId] || ""}
+                        onChange={(e) =>
+                          setAnswers((prev) => ({
+                            ...prev,
+                            [qId]: e.target.value,
+                          }))
+                        }
+                        placeholder="Write your academic response here..."
+                        className={`w-full bg-[var(--surface-elevated)] border rounded-xl px-4 py-3 text-xs text-[var(--text-primary)] resize-none focus:outline-none focus:ring-1 focus:ring-[var(--ring)] ${border}`}
+                      />
+                    )}
+
+                    {/* Solutions display if toggled */}
+                    {showSolutions && (
+                      <div className="mt-4 pt-4 border-t border-[var(--border)] bg-[var(--surface-elevated)] p-4 rounded-xl space-y-2">
+                        <p className="text-xs font-medium text-emerald-400">
+                          ✓ Expected Solution / Model Answer:
+                        </p>
+                        <p className="text-xs text-[var(--text-primary)] leading-relaxed">
+                          {q.expectedAnswer || q.correctAnswer || "Refer to course reference materials."}
+                        </p>
+                        {q.rubric && (
+                          <p className="text-[11px] font-mono text-[var(--text-secondary)] italic">
+                            Marking Rubric: {q.rubric}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}
 
-        <button onClick={() => onSubmit(answers)}
-          className={`w-full py-4 text-sm font-body tracking-wide rounded-sm transition-all group ${light ? 'bg-[#412D15] text-white hover:bg-[#1F150C]' : 'bg-[#E1DCC9] text-black hover:bg-white'}`}>
-          SUBMIT FOR EVALUATION <span className="group-hover:translate-x-1 inline-block transition-transform">→</span>
-        </button>
+        <div className="flex gap-4">
+          <button
+            id="submit-paper-btn"
+            onClick={handleFinish}
+            disabled={submitting}
+            className="flex-1 py-4 text-sm font-body tracking-wide rounded-xl btn-primary transition-all disabled:opacity-40 cursor-pointer"
+          >
+            {submitting ? "Evaluating Exam Paper via RAG..." : "SUBMIT FOR AI EVALUATION →"}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function PaperResult({ theme, onReset }) {
-  const metrics = [
-    { label: 'Conceptual Understanding', val: 88 },
-    { label: 'Problem Solving', val: 81 },
-    { label: 'Accuracy', val: 84 },
-    { label: 'Topic Coverage', val: 79 },
-  ];
-  const light = theme === 'light';
-  const border = light ? 'border-[rgba(65,45,21,0.1)]' : 'border-[rgba(225,220,201,0.08)]';
-  const muted = light ? 'text-[rgba(0,0,0,0.4)]' : 'text-[rgba(225,220,201,0.4)]';
-  const sub = light ? 'text-[rgba(0,0,0,0.25)]' : 'text-[rgba(225,220,201,0.25)]';
-
+function PaperResult({ attempt, assessment, sourceTitle, theme, onDownloadSolutionsPDF, onReset }) {
+  const light = theme === "light";
   return (
-    <div className="min-h-screen pt-14" style={{ background: light ? '#F8F7F3' : '#000' }}>
+    <div
+      className="min-h-screen pt-14 page-shell"
+      style={{ background: light ? "#F8F7F3" : "#000" }}
+    >
       <div className="max-w-3xl mx-auto px-6 py-12">
-        <div className="text-center mb-12 animate-fade-in-up">
-          <p className={`font-mono text-[9px] tracking-widest mb-4 ${sub}`}>PRACTICE COMPLETE</p>
-          <div className="font-display text-8xl font-light mb-2">84%</div>
-          <p className={`font-body text-sm ${muted}`}>42 / 50 MARKS</p>
-        </div>
-
-        <div className={`p-6 border rounded-sm mb-6 animate-fade-in-up delay-100 ${border}`} style={{ background: light ? '#fff' : '#0A0703' }}>
-          <p className={`font-mono text-[9px] tracking-widest mb-4 ${sub}`}>OVERALL EVALUATION</p>
-          <div className="space-y-4">
-            {metrics.map((m, i) => (
-              <div key={i}>
-                <div className="flex justify-between mb-1">
-                  <p className="text-xs font-body">{m.label}</p>
-                  <p className="text-xs font-mono">{m.val}%</p>
-                </div>
-                <div className="h-1 rounded-full" style={{ background: light ? 'rgba(65,45,21,0.08)' : 'rgba(225,220,201,0.08)' }}>
-                  <div className="h-full rounded-full" style={{ width: `${m.val}%`, background: '#E1DCC9' }} />
-                </div>
-              </div>
-            ))}
+        <div className="text-center mb-10 animate-fade-in-up">
+          <p className="section-label mb-2">PRACTICE EVALUATION COMPLETE</p>
+          <div className="font-display text-8xl font-light mb-2 text-[var(--text-primary)]">
+            {attempt.percentage}%
           </div>
+          <p className="text-sm text-[var(--text-secondary)]">
+            Score: {attempt.score} / {attempt.totalMarks} Marks
+          </p>
         </div>
 
-        <div className={`p-6 border rounded-sm mb-6 animate-fade-in-up delay-200 ${light ? 'border-[rgba(65,45,21,0.15)] bg-[rgba(65,45,21,0.04)]' : 'border-[rgba(225,220,201,0.12)] bg-[rgba(225,220,201,0.03)]'}`}>
-          <p className={`font-mono text-[9px] tracking-widest mb-3 ${sub}`}>AI FEEDBACK</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {[{ l: 'STRENGTHS', v: 'Excellent grasp of normalization theory and ACID properties.' },
-              { l: 'AREAS TO IMPROVE', v: 'Section C answers lack sufficient examples and schema diagrams.' },
-              { l: 'RECOMMENDED NEXT', v: 'Practice full BCNF decomposition problems with complex schemas.' }].map((f, i) => (
-              <div key={i}>
-                <p className={`font-mono text-[8px] tracking-widest mb-1 ${sub}`}>{f.l}</p>
-                <p className={`text-[10px] font-body leading-relaxed ${muted}`}>{f.v}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-3 animate-fade-in-up delay-300">
-          <Link to="/create?mode=paper"
-            className={`px-5 py-2.5 text-xs font-body rounded-sm transition-all ${light ? 'bg-[#412D15] text-white hover:bg-[#1F150C]' : 'bg-[#E1DCC9] text-black hover:bg-white'}`}>
-            RECOMMENDED NEXT PRACTICE
-          </Link>
-          <button onClick={onReset} className={`px-5 py-2.5 text-xs font-body border rounded-sm transition-all ${border} ${light ? 'hover:bg-[#E1DCC9]' : 'hover:bg-[#1F150C]'}`}>
-            CREATE ANOTHER PAPER
+        <div className="flex justify-center gap-3 mb-8">
+          <button
+            id="download-solutions-pdf-result"
+            onClick={onDownloadSolutionsPDF}
+            className="btn btn-primary cursor-pointer flex items-center gap-2"
+          >
+            📥 Download Solutions PDF
           </button>
-          <Link to="/create" className={`px-5 py-2.5 text-xs font-body border rounded-sm transition-all ${border} ${light ? 'hover:bg-[#E1DCC9]' : 'hover:bg-[#1F150C]'}`}>
-            USE SAME KNOWLEDGE
+        </div>
+
+        <div className="space-y-4 mb-8">
+          <h3 className="section-label">Section & Question Breakdown</h3>
+          {(attempt.answers || []).map((ans, idx) => (
+            <div key={idx} className="panel p-5 border rounded-xl">
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-mono text-xs text-[var(--text-secondary)]">
+                  Question {idx + 1}
+                </span>
+                <span className="font-mono text-xs text-emerald-400 font-bold">
+                  {ans.awardedMarks} / {ans.maxMarks} Marks
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-primary)] mb-2">
+                <strong>Your Submission:</strong> {ans.userAnswer || "(No answer submitted)"}
+              </p>
+              {ans.feedback && (
+                <p className="text-xs text-[var(--text-secondary)] bg-[var(--surface-elevated)] p-2.5 rounded-lg italic border border-[var(--border)]">
+                  📝 {ans.feedback}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button onClick={onReset} className="btn btn-primary cursor-pointer">
+            Create Another Paper →
+          </button>
+          <Link to="/history" className="btn btn-secondary">
+            View in History
+          </Link>
+          <Link to="/progress" className="btn btn-ghost">
+            View Analytics
           </Link>
         </div>
       </div>
@@ -216,8 +414,134 @@ function PaperResult({ theme, onReset }) {
 }
 
 export default function PracticePaper({ theme }) {
-  const [phase, setPhase] = useState('setup');
-  if (phase === 'setup') return <PaperSetup theme={theme} onStart={() => setPhase('paper')} />;
-  if (phase === 'paper') return <PaperExperience theme={theme} onSubmit={() => setPhase('result')} />;
-  return <PaperResult theme={theme} onReset={() => setPhase('setup')} />;
+  const [searchParams] = useSearchParams();
+  const initialKs = searchParams.get("knowledge");
+
+  const [sources, setSources] = useState([]);
+  const [phase, setPhase] = useState("setup");
+  const [assessment, setAssessment] = useState(null);
+  const [attempt, setAttempt] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [selectedKsId, setSelectedKsId] = useState(initialKs || "");
+
+  useEffect(() => {
+    async function loadSources() {
+      try {
+        const res = await knowledgeApi.getAll();
+        const list = res?.data?.knowledgeSources || [];
+        setSources(list);
+        if (list.length > 0 && !selectedKsId) {
+          setSelectedKsId(list[0].id);
+        }
+      } catch (err) {
+        console.warn("Could not load knowledge sources:", err.message);
+      }
+    }
+    loadSources();
+  }, []);
+
+  const handleGenerate = async ({
+    knowledgeSourceId,
+    totalMarks,
+    difficulty,
+  }) => {
+    setSelectedKsId(knowledgeSourceId);
+    setLoading(true);
+    setError("");
+    const startTime = Date.now();
+    try {
+      const res = await ragApi.generatePaper({
+        knowledgeSourceIds: [knowledgeSourceId],
+        totalMarks,
+        difficulty,
+      });
+      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+      setAssessment({
+        ...res?.data,
+        generationTimeSeconds: duration,
+      });
+      setPhase("paper");
+    } catch (err) {
+      setError(err.message || "Failed to generate practice paper");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const selectedSource = sources.find((s) => s.id === selectedKsId);
+  const sourceTitle = selectedSource?.title || "Knowledge Source";
+
+  const handleDownloadQuestionPDF = () => {
+    if (!assessment) return;
+    generatePracticePaperPDF(assessment, sourceTitle);
+  };
+
+  const handleDownloadSolutionsPDF = () => {
+    if (!assessment) return;
+    generatePracticeSolutionsPDF(assessment, sourceTitle);
+  };
+
+  const handleSubmitAttempt = async (answers, timeSpentSeconds) => {
+    if (!assessment?.id) return;
+    setSubmitting(true);
+    try {
+      const res = await ragApi.submitAttempt(assessment.id, {
+        answers,
+        timeSpentSeconds,
+      });
+      setAttempt(res?.data);
+      setPhase("result");
+    } catch (err) {
+      setError(err.message || "Failed to submit assessment");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (phase === "setup") {
+    return (
+      <PaperSetup
+        theme={theme}
+        sources={sources}
+        onGenerate={handleGenerate}
+        loading={loading}
+        error={error}
+      />
+    );
+  }
+
+  if (phase === "paper" && assessment) {
+    return (
+      <PaperExperience
+        assessment={assessment}
+        sourceTitle={sourceTitle}
+        theme={theme}
+        onSubmit={handleSubmitAttempt}
+        submitting={submitting}
+        onDownloadQuestionPDF={handleDownloadQuestionPDF}
+        onDownloadSolutionsPDF={handleDownloadSolutionsPDF}
+      />
+    );
+  }
+
+  if (phase === "result" && attempt) {
+    return (
+      <PaperResult
+        attempt={attempt}
+        assessment={assessment}
+        sourceTitle={sourceTitle}
+        theme={theme}
+        onDownloadSolutionsPDF={handleDownloadSolutionsPDF}
+        onReset={() => {
+          setAssessment(null);
+          setAttempt(null);
+          setPhase("setup");
+        }}
+      />
+    );
+  }
+
+  return null;
 }

@@ -1,0 +1,16 @@
+RANA RUCHI NAVINCHANDRA
+Email: raruchi2206@gmail.com
+Profile: Full-Stack & AI Software Engineer
+
+PROJECTS:
+1. PrepMind — AI-Powered RAG Knowledge-to-Assessment Platform:
+Developed an intelligent academic evaluation and study platform featuring document ingestion, Ollama embeddings, FAISS vector indexing, and grounded quiz/notes generation.
+2. MediCare AI Assistant:
+Built a healthcare diagnostic assistant using Next.js, Python FastAPI, and medical classification models.
+3. FinTrack Ledger:
+Created a real-time distributed financial transaction audit system using Node.js and PostgreSQL.
+
+SKILLS:
+Languages: JavaScript, TypeScript, Python, SQL
+Frameworks: React, Express, FastAPI, PyTorch, Tailwind CSS
+Databases: MongoDB, PostgreSQL, FAISS Vector Database

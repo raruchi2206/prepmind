@@ -1,0 +1,11 @@
+Distributed Systems & Cloud Computing Overview:
+1. CAP Theorem states that any distributed data store can only provide at most two out of three guarantees: Consistency, Availability, and Partition Tolerance.
+2. Consistency means every read receives the most recent write or an error.
+3. Availability means every non-failing node returns a response for all read and write requests.
+4. Partition tolerance means the system continues to operate despite an arbitrary number of messages being dropped or delayed by the network between nodes.
+5. Microservices architecture structures an application as a collection of loosely coupled, independently deployable services.
+6. Containerization using Docker bundles application code together with related configuration files, libraries, and dependencies.
+7. Kubernetes provides automated container deployment, scaling, load balancing, and self-healing mechanisms.
+8. Raft Consensus Algorithm is designed to be understandable and manages a replicated log through leader election, log replication, and safety constraints.
+9. Database Sharding is a horizontal partitioning method that separates very large databases the into smaller, faster, more easily managed parts called data shards.
+10. Event-Driven Architecture uses events to trigger and communicate between decoupled services and is common in modern applications built with microservices.

@@ -39,7 +39,7 @@ const knowledgeChunkSchema = new mongoose.Schema(
       },
       sourceType: {
         type: String,
-        enum: ["PDF", "PPTX", "DOCX", "TXT", "YOUTUBE"],
+        enum: ["PDF", "IMAGE", "PPTX", "PPT", "DOCX", "DOC", "TXT", "YOUTUBE"],
         required: true,
       },
       originalFileName: {

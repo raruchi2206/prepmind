@@ -6,13 +6,27 @@ const { createHttpError } = require("./errorMiddleware");
 
 const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.ms-powerpoint",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/msword",
   "text/plain",
 ]);
 
-const ALLOWED_EXTENSIONS = new Set([".pdf", ".pptx", ".docx", ".txt"]);
+const ALLOWED_EXTENSIONS = new Set([
+  ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".pptx",
+  ".ppt",
+  ".docx",
+  ".doc",
+  ".txt",
+]);
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -43,7 +57,7 @@ function fileFilter(req, file, cb) {
     return cb(
       createHttpError(
         400,
-        `Unsupported file extension "${ext}". Allowed types: PDF, PPTX, DOCX, TXT.`,
+        `Unsupported file extension "${ext}". Allowed types: PDF (.pdf), Images (.jpg, .jpeg, .png), PowerPoint (.ppt, .pptx), Word (.doc, .docx), Text (.txt).`,
       ),
     );
   }
@@ -52,7 +66,7 @@ function fileFilter(req, file, cb) {
     return cb(
       createHttpError(
         400,
-        `Unsupported MIME type "${file.mimetype}". Allowed types: PDF, PPTX, DOCX, TXT.`,
+        `Unsupported MIME type "${file.mimetype}". Allowed types: PDF, Images, PowerPoint, Word, Text.`,
       ),
     );
   }

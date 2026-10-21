@@ -21,10 +21,15 @@ const {
 async function register(request, response, next) {
   try {
     const user = await registerUser(request.body);
+    const accessToken = createAccessToken(user);
+    setAuthCookies(response, user);
     response.status(201).json({
       success: true,
       message: "Account created successfully",
-      data: { user: user.toSafeObject() },
+      data: {
+        user: user.toSafeObject(),
+        tokens: { accessToken },
+      },
     });
   } catch (error) {
     next(error);
@@ -34,11 +39,15 @@ async function register(request, response, next) {
 async function login(request, response, next) {
   try {
     const user = await authenticateUser(request.body);
+    const accessToken = createAccessToken(user);
     setAuthCookies(response, user);
     response.json({
       success: true,
       message: "Logged in successfully",
-      data: { user: user.toSafeObject() },
+      data: {
+        user: user.toSafeObject(),
+        tokens: { accessToken },
+      },
     });
   } catch (error) {
     next(error);

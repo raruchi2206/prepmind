@@ -1,6 +1,8 @@
+const path = require("path");
 const dotenv = require("dotenv");
 const { z } = require("zod");
 
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 dotenv.config();
 
 const envSchema = z.object({
@@ -21,6 +23,7 @@ const envSchema = z.object({
   EMAIL_PASSWORD: z.string().optional(),
   EMAIL_FROM: z.string().default("PrepMind <raruchi2206@gmail.com>"),
   OTP_EXPIRES_MINUTES: z.coerce.number().int().positive().default(10),
+  AI_SERVICE_URL: z.string().default("http://127.0.0.1:8000"),
 });
 
 const parsed = envSchema.safeParse(process.env);

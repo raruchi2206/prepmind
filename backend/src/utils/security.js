@@ -6,10 +6,11 @@ const { createHttpError } = require("../middleware/errorMiddleware");
  * Throws a 400 Bad Request error if invalid.
  */
 function validateObjectId(id, label = "Resource ID") {
-  if (!id || typeof id !== "string" || !mongoose.Types.ObjectId.isValid(id)) {
+  const strId = id && (id._id ? id._id.toString() : id.toString ? id.toString() : String(id));
+  if (!strId || typeof strId !== "string" || !mongoose.Types.ObjectId.isValid(strId)) {
     throw createHttpError(400, `Invalid ${label} format`);
   }
-  return new mongoose.Types.ObjectId(id);
+  return new mongoose.Types.ObjectId(strId);
 }
 
 /**

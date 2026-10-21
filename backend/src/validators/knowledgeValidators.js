@@ -7,9 +7,9 @@ const createKnowledgeSourceSchema = z
       .trim()
       .min(1, "Title is required")
       .max(200, "Title cannot exceed 200 characters"),
-    type: z.enum(["PDF", "PPTX", "DOCX", "TXT", "YOUTUBE"], {
+    type: z.enum(["PDF", "IMAGE", "PPTX", "PPT", "DOCX", "DOC", "TXT", "YOUTUBE"], {
       errorMap: () => ({
-        message: "Type must be one of PDF, PPTX, DOCX, TXT, or YOUTUBE",
+        message: "Type must be one of PDF, IMAGE, PPTX, PPT, DOCX, DOC, TXT, or YOUTUBE",
       }),
     }),
     youtubeUrl: z.string().trim().url("Invalid YouTube URL").optional(),

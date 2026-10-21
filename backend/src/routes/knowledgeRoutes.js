@@ -8,6 +8,8 @@ const {
   deleteKnowledgeSource,
   processKnowledgeSource,
   getKnowledgeChunks,
+  reindexKnowledgeSource,
+  reindexAllSources,
 } = require("../controllers/knowledgeController");
 const { requireAuth } = require("../middleware/authMiddleware");
 const { validate } = require("../middleware/validate");
@@ -25,6 +27,7 @@ router.use(requireAuth);
 router.post("/", validate(createKnowledgeSourceSchema), createKnowledgeSource);
 router.post("/upload", upload.single("file"), uploadKnowledgeSource);
 router.get("/", getKnowledgeSources);
+router.post("/reindex-all", reindexAllSources);
 router.get("/:id", getKnowledgeSource);
 router.patch(
   "/:id",
@@ -33,6 +36,7 @@ router.patch(
 );
 router.delete("/:id", deleteKnowledgeSource);
 router.post("/:id/process", processKnowledgeSource);
+router.post("/:id/reindex", reindexKnowledgeSource);
 router.get("/:id/chunks", getKnowledgeChunks);
 
 module.exports = router;

@@ -15,8 +15,11 @@ const KnowledgeSource = require("../src/models/KnowledgeSource");
 const KnowledgeChunk = require("../src/models/KnowledgeChunk");
 const { createAccessToken } = require("../src/services/tokenService");
 
+const { MongoMemoryServer } = require("mongodb-memory-server");
+
 let server;
 let baseUrl;
+let mongod;
 
 async function request(reqPath, options = {}) {
   const url = `${baseUrl}${reqPath}`;
@@ -120,8 +123,14 @@ describe("PREPMIND Stage 3 — Knowledge Ingestion Pipeline Test Suite", () => {
   let userACookies, userBCookies;
 
   before(async () => {
-    if (mongoose.connection.readyState !== 1) {
-      await mongoose.connect(env.MONGODB_URI, { dbName: "prepmind_test" });
+    try {
+      if (mongoose.connection.readyState !== 1) {
+        await mongoose.connect(env.MONGODB_URI, { dbName: "prepmind_test", serverSelectionTimeoutMS: 4000 });
+      }
+    } catch (err) {
+      console.log(`[TEST SETUP] Remote Atlas failed (${err.message}). Using MongoMemoryServer...`);
+      mongod = await MongoMemoryServer.create();
+      await mongoose.connect(mongod.getUri());
     }
 
     server = http.createServer(app);
@@ -442,5 +451,10 @@ describe("PREPMIND Stage 3 — Knowledge Ingestion Pipeline Test Suite", () => {
     const dbChunks = await KnowledgeChunk.find({ knowledgeSourceId: sourceId });
     assert.equal(dbChunks.length, count2);
     assert.equal(count1, count2);
+  });
+
+  after(async () => {
+    if (server) await new Promise((resolve) => server.close(resolve));
+    if (mongod) await mongod.stop();
   });
 });

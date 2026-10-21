@@ -18,16 +18,22 @@ const processingStages = [
 function FileTypeIcon({ type }) {
   const colors = {
     PDF: "#E74C3C",
+    IMAGE: "#10B981",
     PPTX: "#E67E22",
+    PPT: "#E67E22",
     DOCX: "#2980B9",
+    DOC: "#2980B9",
     YouTube: "#E74C3C",
     YOUTUBE: "#E74C3C",
     TXT: "#95A5A6",
   };
   const labels = {
     PDF: "PDF",
+    IMAGE: "IMG",
     PPTX: "PPT",
+    PPT: "PPT",
     DOCX: "DOC",
+    DOC: "DOC",
     YouTube: "▶",
     YOUTUBE: "▶",
     TXT: "TXT",
@@ -178,10 +184,10 @@ export default function Knowledge({ theme }) {
   const handleUpload = async (file) => {
     if (!file) return;
 
-    const allowed = [".pdf", ".pptx", ".docx", ".txt"];
+    const allowed = [".pdf", ".jpg", ".jpeg", ".png", ".pptx", ".ppt", ".docx", ".doc", ".txt"];
     const ext = "." + file.name.split(".").pop().toLowerCase();
     if (!allowed.includes(ext)) {
-      setError("Unsupported file format. Please upload a .pdf, .docx, .pptx, or .txt document.");
+      setError("Unsupported file format. Please upload PDF, Image (JPG/PNG), PowerPoint (PPT/PPTX), Word (DOC/DOCX), or Text (TXT).");
       return;
     }
 
@@ -302,7 +308,7 @@ export default function Knowledge({ theme }) {
             <input
               ref={fileRef}
               type="file"
-              accept=".pdf,.pptx,.docx,.txt"
+              accept=".pdf,.jpg,.jpeg,.png,.pptx,.ppt,.docx,.doc,.txt"
               className="hidden"
               onChange={(e) => {
                 if (e.target.files?.[0]) {
@@ -321,7 +327,7 @@ export default function Knowledge({ theme }) {
                 Drag and drop your files here
               </p>
               <p className="mt-3 font-mono text-[0.58rem] uppercase tracking-[0.14em] text-[var(--text-secondary)]">
-                PDF · PPTX · DOCX · TXT
+                PDF · JPG · PNG · PPT/PPTX · DOC/DOCX · TXT
               </p>
               <p className="mt-2 font-mono text-[0.58rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
                 or click to browse
@@ -355,7 +361,7 @@ export default function Knowledge({ theme }) {
                 No knowledge sources yet
               </h3>
               <p className="mt-2 text-sm text-[var(--text-secondary)] max-w-md mx-auto">
-                Upload your first PDF, DOCX, PPTX, or TXT document to start generating quizzes, notes, summaries, and viva assessments.
+                Upload your first PDF, image, Word, PowerPoint, or text document to start generating quizzes, notes, summaries, and viva assessments.
               </p>
               <button
                 onClick={() => fileRef.current?.click()}
@@ -429,6 +435,35 @@ export default function Knowledge({ theme }) {
                         >
                           View
                         </Link>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              setProcessingState({
+                                title: knowledgeItem.title,
+                                status: "EMBEDDING",
+                                error: null,
+                                isComplete: false,
+                              });
+                              await knowledgeApi.reindex(knowledgeItem.id);
+                              setProcessingState((prev) => ({
+                                ...prev,
+                                status: "READY",
+                                isComplete: true,
+                              }));
+                              await loadKnowledge();
+                            } catch (err) {
+                              setProcessingState((prev) => ({
+                                ...prev,
+                                error: err.message || "Failed to re-index",
+                              }));
+                            }
+                          }}
+                          className="btn btn-ghost btn-sm font-mono text-[10px]"
+                          title="Re-index vectors into FAISS"
+                        >
+                          Re-index ↻
+                        </button>
                         <Link
                           to={`/create?knowledge=${knowledgeItem.id}`}
                           className="btn btn-primary btn-sm"
@@ -554,10 +589,10 @@ export function KnowledgeDetail({ theme }) {
           </div>
 
           <div className="mt-8 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5">
-            <p className="section-label">Knowledge coverage</p>
+            <p className="section-label">Document Overview</p>
             <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
               {[
-                { value: chunkCount.toString(), label: "Chunks" },
+                { value: chunkCount.toString(), label: "Chunks Indexed" },
                 { value: pageCount > 0 ? pageCount.toString() : "—", label: "Pages" },
                 { value: wordCount > 0 ? wordCount.toLocaleString() : "—", label: "Words" },
                 { value: source.status, label: "Status" },
@@ -575,35 +610,13 @@ export function KnowledgeDetail({ theme }) {
                 </div>
               ))}
             </div>
-
-            {chunks.length > 0 && (
-              <div className="mt-6">
-                <p className="section-label mb-3">Extracted Chunks Preview ({chunks.length})</p>
-                <div className="max-h-80 overflow-y-auto space-y-3 pr-2">
-                  {chunks.slice(0, 10).map((c) => (
-                    <div
-                      key={c.id || c.chunkIndex}
-                      className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-xs"
-                    >
-                      <div className="flex items-center justify-between font-mono text-[0.6rem] text-[var(--text-secondary)] mb-1">
-                        <span>Chunk #{c.chunkIndex}</span>
-                        <span>{c.metadata?.page ? `Page ${c.metadata.page}` : c.metadata?.slide ? `Slide ${c.metadata.slide}` : ""}</span>
-                      </div>
-                      <p className="text-[var(--text-primary)] line-clamp-3 leading-relaxed">
-                        {c.text}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link to={`/create?knowledge=${source.id}`} className="btn btn-primary flex-1">
               Create from this knowledge →
             </Link>
-            <Link to="/ask" className="btn btn-secondary">
+            <Link to={`/ask?knowledge=${source.id}`} className="btn btn-secondary">
               Ask PrepMind →
             </Link>
           </div>

@@ -122,5 +122,76 @@ export const knowledgeApi = {
     apiRequest(`/knowledge/${id}/process`, {
       method: "POST",
     }),
+  reindex: (id) =>
+    apiRequest(`/knowledge/${id}/reindex`, {
+      method: "POST",
+    }),
+  reindexAll: () =>
+    apiRequest("/knowledge/reindex-all", {
+      method: "POST",
+    }),
   getChunks: (id) => apiRequest(`/knowledge/${id}/chunks`),
 };
+
+export const ragApi = {
+  retrieve: (body) =>
+    apiRequest("/rag/retrieve", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  ask: (body) =>
+    apiRequest("/rag/ask", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  generateSummary: (body) =>
+    apiRequest("/rag/generate/summary", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  generateNotes: (body) =>
+    apiRequest("/rag/generate/notes", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  generateQuiz: (body) =>
+    apiRequest("/rag/generate/quiz", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  generatePaper: (body) =>
+    apiRequest("/rag/generate/paper", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  generateViva: (body) =>
+    apiRequest("/rag/generate/viva", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  evaluateViva: (body) =>
+    apiRequest("/rag/evaluate/viva", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  getAssessment: (id) => apiRequest(`/rag/assessments/${id}`),
+  submitAttempt: (id, body) =>
+    apiRequest(`/rag/assessments/${id}/attempt`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
+export const historyApi = {
+  getAll: () => apiRequest("/history"),
+  getById: (id) => apiRequest(`/history/${id}`),
+  delete: (id) =>
+    apiRequest(`/history/${id}`, {
+      method: "DELETE",
+    }),
+};
+
+export const progressApi = {
+  get: () => apiRequest("/progress"),
+};
+

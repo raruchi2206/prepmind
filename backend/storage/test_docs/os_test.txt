@@ -1,0 +1,5 @@
+Operating Systems - Virtual Memory and Paging
+1. Virtual Memory provides an illusion of a large contiguous memory space to user programs by mapping virtual addresses to physical frames.
+2. Paging divides virtual memory into fixed-size blocks called pages, and physical memory into frames.
+3. Page Replacement Algorithms like LRU (Least Recently Used) and FIFO manage page faults when frames are full.
+4. Thrashing occurs when a computer's virtual memory subsystem is in a constant state of paging, rapidly exchanging data between memory and disk.
