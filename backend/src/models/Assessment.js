@@ -46,6 +46,10 @@ const assessmentSchema = new mongoose.Schema(
       type: Number,
       default: 15,
     },
+    generationTimeSeconds: {
+      type: Number,
+      default: null,
+    },
     questions: [
       {
         id: mongoose.Schema.Types.Mixed,
@@ -64,6 +68,7 @@ const assessmentSchema = new mongoose.Schema(
         sectionName: String,
         instructions: String,
         marksPerQuestion: Number,
+        sectionMarks: Number,
         questions: [
           {
             id: mongoose.Schema.Types.Mixed,
@@ -89,6 +94,8 @@ const assessmentSchema = new mongoose.Schema(
         page: Number,
         slide: Number,
         section: String,
+        startTime: Number,
+        endTime: Number,
         label: String,
       },
     ],
@@ -125,6 +132,7 @@ assessmentSchema.methods.toSafeObject = function toSafeObject() {
     questions: safeQuestions,
     sections: this.sections,
     sources: this.sources,
+    generationTimeSeconds: this.generationTimeSeconds,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt,
   };

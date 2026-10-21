@@ -96,6 +96,8 @@ function createChunksFromExtractedItems(
     const page = typeof item === "object" ? item.page : null;
     const slide = typeof item === "object" ? item.slide : null;
     const section = typeof item === "object" ? item.section : null;
+    const startTime = typeof item === "object" ? item.startTime : null;
+    const endTime = typeof item === "object" ? item.endTime : null;
 
     const rawChunks = chunkText(itemText, { chunkSize, chunkOverlap });
 
@@ -109,6 +111,8 @@ function createChunksFromExtractedItems(
           page: page ?? null,
           slide: slide ?? null,
           section: section ?? null,
+          startTime: startTime ?? null,
+          endTime: endTime ?? null,
           sourceType,
           originalFileName: originalFileName ?? null,
         },

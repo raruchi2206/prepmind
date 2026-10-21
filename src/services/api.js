@@ -109,6 +109,11 @@ export const knowledgeApi = {
       body: JSON.stringify(body),
     }),
   upload: (formData) => apiUpload("/knowledge/upload", formData),
+  importYouTube: (body) =>
+    apiRequest("/knowledge/youtube", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   update: (id, body) =>
     apiRequest(`/knowledge/${id}`, {
       method: "PATCH",

@@ -37,6 +37,14 @@ const knowledgeChunkSchema = new mongoose.Schema(
         type: String,
         default: null,
       },
+      startTime: {
+        type: Number,
+        default: null,
+      },
+      endTime: {
+        type: Number,
+        default: null,
+      },
       sourceType: {
         type: String,
         enum: ["PDF", "IMAGE", "PPTX", "PPT", "DOCX", "DOC", "TXT", "YOUTUBE"],

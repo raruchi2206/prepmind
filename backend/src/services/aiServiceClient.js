@@ -1,7 +1,9 @@
 const env = require("../config/env");
 const { Agent } = require("undici");
+const { createHttpError } = require("../middleware/errorMiddleware");
 
 const QUIZ_RESPONSE_TIMEOUT_MS = 20 * 60 * 1000;
+const TRANSCRIPT_TIMEOUT_MS = parseInt(process.env.YOUTUBE_TRANSCRIPT_TIMEOUT_MS || "90000", 10);
 
 class AIServiceClient {
   constructor() {
@@ -71,6 +73,39 @@ class AIServiceClient {
     }
 
     return await res.json();
+  }
+
+  async fetchYouTubeTranscript(videoId, languages = []) {
+    let res;
+    try {
+      res = await fetch(`${this.baseUrl}/youtube/transcript`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId, languages }),
+        signal: AbortSignal.timeout(TRANSCRIPT_TIMEOUT_MS),
+      });
+    } catch (error) {
+      const reason =
+        error && error.name === "TimeoutError"
+          ? "Transcript provider timed out. Please try again."
+          : this.formatConnectionError(error, "Transcript provider (AI service)");
+      throw createHttpError(503, reason, "TRANSCRIPT_PROVIDER_UNAVAILABLE");
+    }
+
+    if (!res.ok) {
+      let detail = null;
+      try {
+        detail = (await res.json()).detail;
+      } catch {}
+      const code = (detail && detail.code) || "TRANSCRIPT_PROVIDER_UNAVAILABLE";
+      const message =
+        (detail && detail.message) ||
+        (typeof detail === "string" ? detail : `Transcript provider failed (${res.status}).`);
+      throw createHttpError(res.status >= 500 ? 503 : 422, message, code);
+    }
+
+    const data = await res.json();
+    return data.data;
   }
 
   async checkHealth() {

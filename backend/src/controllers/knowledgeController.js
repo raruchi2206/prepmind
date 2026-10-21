@@ -43,6 +43,26 @@ async function uploadKnowledgeSource(request, response, next) {
   }
 }
 
+async function importYouTubeSource(request, response, next) {
+  try {
+    const { url, title, language, reprocess } = request.body;
+    const source = await knowledgeService.createYouTubeKnowledgeSource({
+      userId: request.user._id,
+      url,
+      title,
+      language,
+      reprocess: Boolean(reprocess),
+    });
+    response.status(201).json({
+      success: true,
+      message: "YouTube source created. Start processing to extract its transcript.",
+      data: { knowledgeSource: source.toSafeObject() },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getKnowledgeSources(request, response, next) {
   try {
     const sources = await knowledgeService.getKnowledgeSources(
@@ -168,6 +188,7 @@ async function reindexAllSources(request, response, next) {
 module.exports = {
   createKnowledgeSource,
   uploadKnowledgeSource,
+  importYouTubeSource,
   getKnowledgeSources,
   getKnowledgeSource,
   updateKnowledgeSource,

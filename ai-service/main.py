@@ -10,6 +10,7 @@ from services.embedding_service import embedding_service
 from services.faiss_service import faiss_service
 from services.llm_service import llm_service
 from services.rag_service import rag_service
+from services.youtube_service import TranscriptError, fetch_transcript
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,6 +46,11 @@ class ExtractPdfRequest(BaseModel):
 
 class ExtractImageRequest(BaseModel):
     filePath: str
+
+
+class YouTubeTranscriptRequest(BaseModel):
+    videoId: str = Field(min_length=11, max_length=11)
+    languages: Optional[List[str]] = None
 
 
 class ChunkItem(BaseModel):
@@ -264,6 +270,16 @@ async def extract_image_endpoint(payload: ExtractImageRequest):
             status_code=500,
             detail=f"Failed to extract image via OCR: {str(e)}"
         )
+
+@app.post("/youtube/transcript")
+async def youtube_transcript_endpoint(payload: YouTubeTranscriptRequest):
+    try:
+        languages = [str(lang).strip()[:10] for lang in (payload.languages or [])[:5] if str(lang).strip()]
+        result = await fetch_transcript(payload.videoId, languages)
+        return {"success": True, "data": result}
+    except TranscriptError as e:
+        logger.warning(f"[YOUTUBE] Transcript failed | video={payload.videoId} | code={e.code} | {e.message}")
+        raise HTTPException(status_code=e.http_status, detail={"code": e.code, "message": e.message})
 
 @app.post("/embeddings")
 async def create_embeddings(payload: EmbeddingsRequest):

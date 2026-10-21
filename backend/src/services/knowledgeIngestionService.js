@@ -12,9 +12,45 @@ const { extractDoc } = require("./extractors/docExtractor");
 const { extractPptx } = require("./extractors/pptxExtractor");
 const { extractPpt } = require("./extractors/pptExtractor");
 const { extractTxt } = require("./extractors/txtExtractor");
+const { extractYouTube } = require("./extractors/youtubeExtractor");
+
+const PROCESSABLE_STATUSES = ["UPLOADING", "READY", "FAILED"];
+// A run that has not updated its status for this long is treated as abandoned
+const STALE_PROCESSING_MS = 20 * 60 * 1000;
+
+function elapsedSeconds(startedAt) {
+  return Number(((Date.now() - startedAt) / 1000).toFixed(2));
+}
+
+function describeIndexingError(error) {
+  const text = `${error?.message || ""} ${error?.cause?.code || ""}`;
+  if (/ECONNREFUSED|fetch failed|ENOTFOUND|EAI_AGAIN|timeout|connection attempts failed/i.test(text)) {
+    return createHttpError(
+      503,
+      "Embedding service unavailable. Make sure the AI service and Ollama are running, then retry.",
+      "EMBEDDING_SERVICE_UNAVAILABLE",
+    );
+  }
+  if (/embedding|ollama/i.test(text)) {
+    return createHttpError(
+      503,
+      `Embedding service unavailable: ${error.message}`,
+      "EMBEDDING_SERVICE_UNAVAILABLE",
+    );
+  }
+  return createHttpError(
+    500,
+    `Indexing failed: ${error?.message || "unknown error"}`,
+    "INDEXING_FAILED",
+  );
+}
 
 async function extractContent(source) {
-  if (source.type !== "YOUTUBE" && (!source.filePath || !fs.existsSync(source.filePath))) {
+  if (source.type === "YOUTUBE") {
+    return await extractYouTube(source);
+  }
+
+  if (!source.filePath || !fs.existsSync(source.filePath)) {
     throw createHttpError(400, "Physical document file is missing from storage.");
   }
 
@@ -33,11 +69,6 @@ async function extractContent(source) {
       return await extractPpt(source.filePath);
     case "TXT":
       return await extractTxt(source.filePath);
-    case "YOUTUBE":
-      throw createHttpError(
-        400,
-        "YouTube video transcript processing is reserved for the YouTube ingestion module.",
-      );
     default:
       throw createHttpError(400, `Unsupported source type: ${source.type}`);
   }
@@ -46,19 +77,54 @@ async function extractContent(source) {
 async function processKnowledgeSource(sourceId, userId) {
   validateObjectId(sourceId, "Knowledge source ID");
 
-  const source = await KnowledgeSource.findOne({ _id: sourceId, userId });
-  if (!source) {
+  const existing = await KnowledgeSource.exists({ _id: sourceId, userId });
+  if (!existing) {
     throw createHttpError(404, "Knowledge source not found");
   }
 
+  // Atomically claim the source so concurrent retries cannot create duplicate chunks
+  const source = await KnowledgeSource.findOneAndUpdate(
+    {
+      _id: sourceId,
+      userId,
+      $or: [
+        { status: { $in: PROCESSABLE_STATUSES } },
+        { updatedAt: { $lt: new Date(Date.now() - STALE_PROCESSING_MS) } },
+      ],
+    },
+    { $set: { status: "EXTRACTING_CONTENT", errorMessage: null } },
+    { returnDocument: "after" },
+  );
+  if (!source) {
+    throw createHttpError(
+      409,
+      "This source is already being processed. Please wait for it to finish.",
+      "SOURCE_PROCESSING",
+    );
+  }
+
+  const pipelineStartedAt = Date.now();
+  const timings = {};
+
   try {
     // 1. EXTRACTING_CONTENT
-    source.status = "EXTRACTING_CONTENT";
-    source.errorMessage = null;
-    await source.save();
-
-    console.log("[KNOWLEDGE]\nExtraction started");
+    console.log(`[KNOWLEDGE]\nExtraction started (${source.type})`);
+    let stageStartedAt = Date.now();
     const extracted = await extractContent(source);
+    timings.extractionSeconds = elapsedSeconds(stageStartedAt);
+
+    if (source.type === "YOUTUBE" && extracted.youtube) {
+      const autoTitle = Boolean(source.youtube?.autoTitle);
+      source.set("youtube.channel", extracted.youtube.channel);
+      source.set("youtube.language", extracted.youtube.language);
+      source.set("youtube.languageCode", extracted.youtube.languageCode);
+      source.set("youtube.isGenerated", extracted.youtube.isGenerated);
+      source.set("youtube.durationSeconds", extracted.youtube.durationSeconds);
+      source.set("youtube.segmentCount", extracted.youtube.segmentCount);
+      if (autoTitle && extracted.youtube.title) {
+        source.title = extracted.youtube.title.slice(0, 200);
+      }
+    }
 
     const totalChars = (extracted.items || []).reduce(
       (acc, item) => acc + (typeof item === "string" ? item.length : (item.text || "").length),
@@ -81,6 +147,9 @@ async function processKnowledgeSource(sourceId, userId) {
     );
 
     if (totalChars === 0 || !extracted.items || extracted.items.length === 0) {
+      if (source.type === "YOUTUBE") {
+        throw createHttpError(422, "The transcript for this video is empty.", "EMPTY_TRANSCRIPT");
+      }
       throw createHttpError(400, "PDF contains no extractable text and OCR could not recover text.");
     }
 
@@ -91,6 +160,7 @@ async function processKnowledgeSource(sourceId, userId) {
     // 3. CHUNKING
     source.status = "CHUNKING";
     await source.save();
+    stageStartedAt = Date.now();
 
     const chunks = createChunksFromExtractedItems(extracted.items, {
       userId,
@@ -111,20 +181,35 @@ async function processKnowledgeSource(sourceId, userId) {
     // Save chunks to MongoDB
     const insertedChunks = await KnowledgeChunk.insertMany(chunks);
     console.log("[KNOWLEDGE]\nMongoDB chunks saved");
+    timings.chunkingSeconds = elapsedSeconds(stageStartedAt);
 
     // 4. EMBEDDING & FAISS Indexing
     source.status = "EMBEDDING";
     await source.save();
 
-    console.log("[KNOWLEDGE]\nEmbedding started");
-    console.log(`[KNOWLEDGE]\nEmbedding completed\nvectors: ${insertedChunks.length}`);
-
-    console.log("[KNOWLEDGE]\nFAISS indexing started");
+    console.log("[KNOWLEDGE]\nEmbedding + FAISS indexing started");
     const aiServiceClient = require("./aiServiceClient");
-    const indexResult = await aiServiceClient.indexChunks(userId, source._id, insertedChunks);
-    if (!indexResult || indexResult.success !== true) {
-      throw createHttpError(500, "FAISS vector indexing failed to confirm success.");
+    stageStartedAt = Date.now();
+    let indexResult;
+    try {
+      indexResult = await aiServiceClient.indexChunks(userId, source._id, insertedChunks);
+    } catch (indexError) {
+      throw describeIndexingError(indexError);
     }
+    if (!indexResult || indexResult.success !== true) {
+      throw createHttpError(500, "Indexing failed: FAISS did not confirm success.", "INDEXING_FAILED");
+    }
+    if (
+      typeof indexResult.indexedCount === "number" &&
+      indexResult.indexedCount !== insertedChunks.length
+    ) {
+      throw createHttpError(
+        500,
+        `Indexing failed: ${indexResult.indexedCount} of ${insertedChunks.length} chunks were indexed.`,
+        "INDEXING_FAILED",
+      );
+    }
+    timings.indexingSeconds = elapsedSeconds(stageStartedAt);
     console.log(`[KNOWLEDGE]\nFAISS indexing completed: ${indexResult.indexedCount ?? insertedChunks.length} vectors indexed`);
 
     // 5. BUILDING_KNOWLEDGE
@@ -136,6 +221,10 @@ async function processKnowledgeSource(sourceId, userId) {
       pageCount: extracted.metadata?.pageCount ?? source.metadata?.pageCount ?? 0,
       wordCount: extracted.metadata?.wordCount ?? 0,
       chunkCount: insertedChunks.length,
+      processingTimes: {
+        ...timings,
+        totalSeconds: elapsedSeconds(pipelineStartedAt),
+      },
     };
     source.status = "READY";
     source.errorMessage = null;
@@ -145,6 +234,7 @@ async function processKnowledgeSource(sourceId, userId) {
     return {
       knowledgeSource: source.toSafeObject(),
       chunkCount: insertedChunks.length,
+      processingTimes: source.metadata.processingTimes,
     };
   } catch (error) {
     console.error(
@@ -152,10 +242,14 @@ async function processKnowledgeSource(sourceId, userId) {
     );
     source.status = "FAILED";
     source.errorMessage = error.message || "Failed to ingest knowledge document";
+    source.set("metadata.chunkCount", 0);
     await source.save().catch(() => {});
 
-    // Clean up partial chunks on failure
+    // Clean up partial chunks and their vectors on failure
     await KnowledgeChunk.deleteMany({ knowledgeSourceId: source._id }).catch(() => {});
+    await require("./aiServiceClient")
+      .deleteSourceVectors(userId, source._id)
+      .catch(() => {});
 
     throw error;
   }

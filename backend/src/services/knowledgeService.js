@@ -4,6 +4,7 @@ const KnowledgeSource = require("../models/KnowledgeSource");
 const KnowledgeChunk = require("../models/KnowledgeChunk");
 const { createHttpError } = require("../middleware/errorMiddleware");
 const { validateObjectId } = require("../utils/security");
+const { parseYouTubeUrl } = require("../utils/youtube");
 
 function mapExtensionToType(ext) {
   const normalized = ext.toLowerCase();
@@ -29,7 +30,73 @@ function mapExtensionToType(ext) {
   }
 }
 
+/**
+ * Creates (or, with reprocess=true, resets) the YouTube source for a video.
+ * Returns { source, duplicate } — duplicate is set when the video already exists
+ * for this user and reprocessing was not requested.
+ */
+async function createYouTubeKnowledgeSource({ userId, url, title, language, reprocess = false }) {
+  const { videoId, canonicalUrl } = parseYouTubeUrl(url);
+  const customTitle = typeof title === "string" ? title.trim() : "";
+
+  const existing = await KnowledgeSource.findOne({ userId, youtubeVideoId: videoId });
+  if (existing) {
+    if (!reprocess) {
+      throw createHttpError(
+        409,
+        "This video is already in your knowledge library. Choose Reprocess to import it again.",
+        "DUPLICATE_YOUTUBE_SOURCE",
+        { knowledgeSource: existing.toSafeObject() },
+      );
+    }
+    if (!["READY", "FAILED", "UPLOADING"].includes(existing.status)) {
+      throw createHttpError(
+        409,
+        "This video is already being processed. Please wait for it to finish.",
+        "SOURCE_PROCESSING",
+      );
+    }
+    existing.status = "UPLOADING";
+    existing.errorMessage = null;
+    existing.youtubeUrl = canonicalUrl;
+    if (language) existing.set("youtube.requestedLanguage", language);
+    if (customTitle) {
+      existing.title = customTitle;
+      existing.set("youtube.autoTitle", false);
+    }
+    await existing.save();
+    return existing;
+  }
+
+  try {
+    return await KnowledgeSource.create({
+      userId,
+      title: customTitle || `YouTube video ${videoId}`,
+      type: "YOUTUBE",
+      youtubeUrl: canonicalUrl,
+      youtubeVideoId: videoId,
+      youtube: {
+        requestedLanguage: language || null,
+        autoTitle: !customTitle,
+      },
+      status: "UPLOADING",
+    });
+  } catch (error) {
+    if (error && error.code === 11000) {
+      throw createHttpError(
+        409,
+        "This video is already in your knowledge library. Choose Reprocess to import it again.",
+        "DUPLICATE_YOUTUBE_SOURCE",
+      );
+    }
+    throw error;
+  }
+}
+
 async function createKnowledgeSource({ userId, title, type, youtubeUrl }) {
+  if (type === "YOUTUBE") {
+    return createYouTubeKnowledgeSource({ userId, url: youtubeUrl, title });
+  }
   const source = await KnowledgeSource.create({
     userId,
     title: title.trim(),
@@ -178,6 +245,7 @@ async function reindexAllSources(userId) {
 
 module.exports = {
   createKnowledgeSource,
+  createYouTubeKnowledgeSource,
   createUploadedKnowledgeSource,
   getKnowledgeSources,
   getKnowledgeSourceById,

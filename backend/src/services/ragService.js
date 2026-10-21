@@ -14,6 +14,10 @@ const {
   validateQuizQuestionSet,
 } = require("../utils/quizValidation");
 
+function secondsSince(startedAt) {
+  return Number(((Date.now() - startedAt) / 1000).toFixed(2));
+}
+
 async function verifyAndGetSources(userId, sourceIds, requireExplicit = true) {
   const query = { userId };
   if (Array.isArray(sourceIds) && sourceIds.length > 0) {
@@ -35,6 +39,15 @@ async function verifyAndGetSources(userId, sourceIds, requireExplicit = true) {
       );
     }
     return [];
+  }
+
+  const failedSource = sources.find((s) => s.status === "FAILED");
+  if (failedSource) {
+    throw createHttpError(
+      400,
+      `"${failedSource.title}" failed to process: ${failedSource.errorMessage || "unknown error"}. Retry or reprocess it from the Knowledge page.`,
+      "SOURCE_FAILED",
+    );
   }
 
   const pendingSource = sources.find((s) => s.status !== "READY");
@@ -176,6 +189,7 @@ async function askPrepMind({
   knowledgeSourceIds = null,
   conversationId = null,
 }) {
+  const startedAt = Date.now();
   const { sources, chunks } = await retrieveRelevantChunks({
     userId,
     query,
@@ -230,6 +244,7 @@ async function askPrepMind({
       sources: [],
       chunksRetrieved: 0,
       insufficientContext: true,
+      generationTimeSeconds: secondsSince(startedAt),
     };
   }
 
@@ -265,6 +280,7 @@ async function askPrepMind({
     sources: aiResult.sources || [],
     chunksRetrieved: chunks.length,
     insufficientContext: false,
+    generationTimeSeconds: secondsSince(startedAt),
   };
 }
 
@@ -273,6 +289,7 @@ async function generateSummary({
   knowledgeSourceIds,
   regenerate = false,
 }) {
+  const startedAt = Date.now();
   const sources = await verifyAndGetSources(userId, knowledgeSourceIds);
   const sourceIds = sources.map((s) => s._id);
   const sourceTitle = sources.map((s) => s.title).join(", ");
@@ -288,6 +305,7 @@ async function generateSummary({
     if (existing) {
       return {
         ...existing.toSafeObject(),
+        generationTimeSeconds: existing.metadata?.generationTimeSeconds ?? null,
         cached: true,
       };
     }
@@ -318,10 +336,14 @@ async function generateSummary({
     sources: aiResult.sources || [],
     metadata: {
       chunksRetrieved: chunks.length,
+      generationTimeSeconds: secondsSince(startedAt),
     },
   });
 
-  return doc.toSafeObject();
+  return {
+    ...doc.toSafeObject(),
+    generationTimeSeconds: doc.metadata.generationTimeSeconds,
+  };
 }
 
 async function generateNotes({
@@ -329,6 +351,7 @@ async function generateNotes({
   knowledgeSourceIds,
   regenerate = false,
 }) {
+  const startedAt = Date.now();
   const sources = await verifyAndGetSources(userId, knowledgeSourceIds);
   const sourceIds = sources.map((s) => s._id);
   const sourceTitle = sources.map((s) => s.title).join(", ");
@@ -344,6 +367,7 @@ async function generateNotes({
     if (existing) {
       return {
         ...existing.toSafeObject(),
+        generationTimeSeconds: existing.metadata?.generationTimeSeconds ?? null,
         cached: true,
       };
     }
@@ -374,10 +398,14 @@ async function generateNotes({
     sources: aiResult.sources || [],
     metadata: {
       chunksRetrieved: chunks.length,
+      generationTimeSeconds: secondsSince(startedAt),
     },
   });
 
-  return doc.toSafeObject();
+  return {
+    ...doc.toSafeObject(),
+    generationTimeSeconds: doc.metadata.generationTimeSeconds,
+  };
 }
 
 async function generateQuiz({
@@ -536,9 +564,9 @@ async function generateQuiz({
     },
   });
 
-  const safeObj = assessment.toSafeObject();
-  safeObj.generationTimeSeconds = Number(((Date.now() - startedAt) / 1000).toFixed(2));
-  return safeObj;
+  assessment.generationTimeSeconds = secondsSince(startedAt);
+  await assessment.save();
+  return assessment.toSafeObject();
 }
 
 async function generatePracticePaper({
@@ -548,6 +576,7 @@ async function generatePracticePaper({
   difficulty = "Medium",
   regenerate = false,
 }) {
+  const startedAt = Date.now();
   const sources = await verifyAndGetSources(userId, knowledgeSourceIds);
   const sourceIds = sources.map((s) => s._id);
   const sourceTitle = sources.map((s) => s.title).join(", ");
@@ -598,6 +627,7 @@ async function generatePracticePaper({
     timeAllowedMinutes: aiResult.timeAllowedMinutes || 90,
     sections: aiResult.sections || [],
     sources: aiResult.sources || [],
+    generationTimeSeconds: secondsSince(startedAt),
   });
 
   await GeneratedContent.create({
@@ -623,6 +653,7 @@ async function generateViva({
   difficulty = "Medium",
   regenerate = false,
 }) {
+  const startedAt = Date.now();
   const sources = await verifyAndGetSources(userId, knowledgeSourceIds);
   const sourceIds = sources.map((s) => s._id);
   const sourceTitle = sources.map((s) => s.title).join(", ");
@@ -681,6 +712,7 @@ async function generateViva({
       marks: 10,
     })),
     sources: aiResult.sources || [],
+    generationTimeSeconds: secondsSince(startedAt),
   });
 
   await GeneratedContent.create({
