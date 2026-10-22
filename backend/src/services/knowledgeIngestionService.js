@@ -27,11 +27,11 @@ function describeIndexingError(error) {
   if (/ECONNREFUSED|fetch failed|ENOTFOUND|EAI_AGAIN|timeout|connection attempts failed/i.test(text)) {
     return createHttpError(
       503,
-      "Embedding service unavailable. Make sure the AI service and Ollama are running, then retry.",
+      "Embedding service unavailable. Make sure the AI service is running, then retry.",
       "EMBEDDING_SERVICE_UNAVAILABLE",
     );
   }
-  if (/embedding|ollama/i.test(text)) {
+  if (/embedding/i.test(text)) {
     return createHttpError(
       503,
       `Embedding service unavailable: ${error.message}`,

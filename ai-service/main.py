@@ -20,13 +20,20 @@ logger = logging.getLogger("prepmind_ai_service")
 logger.info("[AI SERVICE] URL configured: http://localhost:%s", settings.AI_SERVICE_PORT)
 logger.info("[OLLAMA] Base URL configured: %s", settings.OLLAMA_BASE_URL)
 logger.info("[OLLAMA] Generation model configured: %s", settings.OLLAMA_LLM_MODEL)
-logger.info("[OLLAMA] Embedding model configured: %s", settings.OLLAMA_EMBEDDING_MODEL)
+logger.info("[EMBEDDING] Local model configured: %s", settings.EMBEDDING_MODEL)
+logger.info("[LLM] Provider: %s | model: %s", llm_service.provider, llm_service.model)
 
 app = FastAPI(
     title="PrepMind AI & Vector Service",
     version="1.0.0",
     description="Python FastAPI service for Ollama embeddings, FAISS vector search, and RAG generation"
 )
+
+@app.on_event("startup")
+async def warm_up_embedding_model():
+    # Load all-MiniLM-L6-v2 in the background so the first upload isn't slowed by model loading
+    import asyncio
+    asyncio.create_task(embedding_service.warm_up())
 
 app.add_middleware(
     CORSMiddleware,

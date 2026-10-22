@@ -1,100 +1,101 @@
+import asyncio
 import logging
+import threading
 from typing import List, Optional
-import httpx
+
 import numpy as np
 from config.settings import settings
 
 logger = logging.getLogger("embedding_service")
 
+EMBEDDING_DIMENSION = 384
+
+
 class EmbeddingService:
+    """Local all-MiniLM-L6-v2 embeddings (384-dim) via fastembed's ONNX runtime.
+
+    Runs in-process on CPU without torch, so indexing no longer depends on Ollama. The
+    model is loaded once and shared; encoding runs in a worker thread to keep the event
+    loop free.
+    """
+
     def __init__(self):
-        self.base_url = settings.OLLAMA_BASE_URL
-        self._preferred_model = settings.OLLAMA_EMBEDDING_MODEL
-        self._fallback_model = settings.OLLAMA_LLM_MODEL
-        self._resolved_model: Optional[str] = None
+        self.model_name = settings.EMBEDDING_MODEL
+        self._model = None
+        self._load_error: Optional[str] = None
+        self._lock = threading.Lock()
+
+    def _load_model(self):
+        if self._model is not None:
+            return self._model
+        with self._lock:
+            if self._model is None:
+                from fastembed import TextEmbedding
+
+                logger.info(f"[EMBEDDING] Loading local model '{self.model_name}'")
+                try:
+                    settings.EMBEDDING_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                    model = TextEmbedding(self.model_name, cache_dir=str(settings.EMBEDDING_CACHE_DIR))
+                    dimension = len(next(iter(model.embed(["dimension probe"]))))
+                except Exception as e:
+                    self._load_error = str(e)
+                    raise
+                if dimension != EMBEDDING_DIMENSION:
+                    raise RuntimeError(
+                        f"Embedding model '{self.model_name}' produces {dimension}-dim vectors; "
+                        f"the FAISS index expects {EMBEDDING_DIMENSION}."
+                    )
+                self._model = model
+                self._load_error = None
+                logger.info(f"[EMBEDDING] Model ready ({dimension}-dim)")
+        return self._model
+
+    async def warm_up(self) -> None:
+        try:
+            await asyncio.to_thread(self._load_model)
+        except Exception as e:
+            logger.error(f"[EMBEDDING] Failed to load model: {e}")
 
     async def get_active_model(self) -> str:
-        if self._resolved_model:
-            return self._resolved_model
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                res = await client.get(f"{self.base_url}/api/tags")
-                if res.status_code == 200:
-                    models = [m.get("name") for m in res.json().get("models", [])]
-                    for m in models:
-                        if self._preferred_model in m:
-                            self._resolved_model = m
-                            return m
-                    if models:
-                        for m in models:
-                            if self._fallback_model in m:
-                                self._resolved_model = m
-                                return m
-                        self._resolved_model = models[0]
-                        return self._resolved_model
-        except Exception as e:
-            logger.warning(f"[EMBEDDING] Could not query Ollama tags: {e}")
-        self._resolved_model = self._fallback_model
-        return self._resolved_model
+        return self.model_name
 
     async def check_health(self) -> bool:
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                res = await client.get(f"{self.base_url}/api/tags")
-                return res.status_code == 200
-        except Exception as e:
-            logger.error(f"[EMBEDDING] Health check failed: {e}")
-            return False
+        return self._model is not None
+
+    def health_info(self) -> dict:
+        return {
+            "provider": "fastembed",
+            "model": self.model_name,
+            "dimension": EMBEDDING_DIMENSION,
+            "loaded": self._model is not None,
+            "error": self._load_error,
+        }
 
     async def get_embedding(self, text: str) -> List[float]:
         """Generate normalized embedding for a single text."""
         embeddings = await self.get_embeddings([text])
         return embeddings[0]
 
+    def _encode(self, texts: List[str]) -> List[List[float]]:
+        model = self._load_model()
+        vectors = np.asarray(
+            list(model.embed(texts, batch_size=settings.EMBEDDING_BATCH_SIZE)),
+            dtype=np.float32,
+        )
+        # Re-normalize defensively so FAISS inner product equals cosine similarity
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return (vectors / norms).tolist()
+
     async def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Generate normalized embeddings for a list of texts."""
+        """Generate L2-normalized embeddings for a list of texts."""
         if not texts:
             return []
+        logger.info(f"[EMBEDDING] Encoding {len(texts)} chunks with '{self.model_name}'")
+        try:
+            return await asyncio.to_thread(self._encode, texts)
+        except Exception as e:
+            raise RuntimeError(f"Local embedding model failed: {e}") from e
 
-        model = await self.get_active_model()
-        logger.info(f"[EMBEDDING] Generating embeddings using model '{model}' for {len(texts)} chunks")
-
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            try:
-                res = await client.post(
-                    f"{self.base_url}/api/embed",
-                    json={"model": model, "input": texts}
-                )
-                if res.status_code == 200:
-                    data = res.json()
-                    raw_embeddings = data.get("embeddings", [])
-                    if len(raw_embeddings) == len(texts):
-                        return self._normalize_batch(raw_embeddings)
-            except Exception as e:
-                logger.debug(f"[EMBEDDING] /api/embed attempt exception: {e}, falling back to /api/embeddings")
-
-            results = []
-            for text in texts:
-                try:
-                    res = await client.post(
-                        f"{self.base_url}/api/embeddings",
-                        json={"model": model, "prompt": text}
-                    )
-                    if res.status_code != 200:
-                        raise RuntimeError(f"Ollama embedding failed with status {res.status_code}: {res.text}")
-                    data = res.json()
-                    results.append(data["embedding"])
-                except Exception as e:
-                    logger.error(f"[EMBEDDING] Failed to embed text: {e}")
-                    raise
-
-            return self._normalize_batch(results)
-
-    def _normalize_batch(self, vectors: List[List[float]]) -> List[List[float]]:
-        arr = np.array(vectors, dtype=np.float32)
-        norms = np.linalg.norm(arr, axis=1, keepdims=True)
-        norms[norms == 0] = 1.0
-        normalized = arr / norms
-        return normalized.tolist()
 
 embedding_service = EmbeddingService()
