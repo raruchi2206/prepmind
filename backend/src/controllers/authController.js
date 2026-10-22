@@ -86,11 +86,8 @@ async function refresh(request, response, next) {
     if (!user || user.tokenVersion !== payload.tokenVersion) {
       throw createHttpError(401, "Refresh session is invalid or expired");
     }
-    response.cookie(
-      ACCESS_COOKIE,
-      createAccessToken(user),
-      cookieOptions(15 * 60 * 1000),
-    );
+    // Rotate both tokens so an active user's session slides forward
+    setAuthCookies(response, user);
     response.json({ success: true, message: "Access token refreshed" });
   } catch (error) {
     next(
