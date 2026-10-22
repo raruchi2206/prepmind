@@ -420,13 +420,16 @@ async function generateQuiz({
   const startedAt = Date.now();
   const health = await aiServiceClient.checkHealth();
   if (!health || health.available === false) {
+    const errorDetail =
+      health?.error ||
+      health?.groq?.error ||
+      health?.ollama?.error ||
+      "AI generation service is unavailable.";
     throw createHttpError(
       503,
-      "AI generation service is unavailable. Please make sure the AI service is running and try again.",
+      `AI generation service is unavailable. ${errorDetail}`,
       "AI_SERVICE_UNAVAILABLE",
-      health && health.error
-        ? health.error
-        : "Unable to connect to the AI service.",
+      errorDetail,
     );
   }
 
@@ -617,6 +620,59 @@ async function generatePracticePaper({
     difficulty,
   );
 
+  const sanitizedSections = (aiResult.sections || []).map((sec) => {
+    let qList = sec.questions;
+    if (typeof qList === "string") {
+      try {
+        qList = JSON.parse(qList);
+      } catch {
+        qList = [];
+      }
+    }
+    if (Array.isArray(qList)) {
+      const flattened = [];
+      for (const item of qList) {
+        if (typeof item === "string" && (item.trim().startsWith("[") || item.trim().startsWith("{"))) {
+          try {
+            const parsed = JSON.parse(item);
+            if (Array.isArray(parsed)) {
+              flattened.push(...parsed);
+            } else if (typeof parsed === "object" && parsed !== null) {
+              flattened.push(parsed);
+            } else {
+              flattened.push({ question: item });
+            }
+          } catch {
+            flattened.push({ question: item });
+          }
+        } else {
+          flattened.push(item);
+        }
+      }
+      qList = flattened;
+    }
+    return {
+      sectionName: sec.sectionName || "Section",
+      instructions: sec.instructions || "",
+      marksPerQuestion: Number(sec.marksPerQuestion) || 1,
+      questions: Array.isArray(qList)
+        ? qList.map((q) => {
+            if (typeof q === "string") return { question: q };
+            return {
+              id: q.id || undefined,
+              question: q.question || "Question",
+              type: q.type || "SHORT_ANSWER",
+              options: Array.isArray(q.options) ? q.options : [],
+              correctAnswer: q.correctAnswer || undefined,
+              expectedAnswer: q.expectedAnswer || undefined,
+              rubric: q.rubric || undefined,
+              marks: Number(q.marks) || 1,
+            };
+          })
+        : [],
+    };
+  });
+
   const assessment = await Assessment.create({
     userId,
     knowledgeSourceIds: sourceIds,
@@ -625,7 +681,7 @@ async function generatePracticePaper({
     difficulty,
     totalMarks: aiResult.totalMarks || totalMarks,
     timeAllowedMinutes: aiResult.timeAllowedMinutes || 90,
-    sections: aiResult.sections || [],
+    sections: sanitizedSections,
     sources: aiResult.sources || [],
     generationTimeSeconds: secondsSince(startedAt),
   });
@@ -643,7 +699,21 @@ async function generatePracticePaper({
     },
   });
 
-  return assessment.toSafeObject();
+  const safeObj = assessment.toSafeObject();
+  safeObj.content = (safeObj.sections || [])
+    .map(
+      (s) =>
+        `### ${s.sectionName || "Section"}\n${s.instructions || ""}\n` +
+        (s.questions || [])
+          .map(
+            (q, i) =>
+              `${i + 1}. ${q.question || ""} (${q.marks || s.marksPerQuestion || 1}M)`
+          )
+          .join("\n")
+    )
+    .join("\n\n");
+
+  return safeObj;
 }
 
 async function generateViva({

@@ -785,7 +785,7 @@ class RAGService:
 
         # Zero-retrieval / Insufficient-context protection
         if not chunks:
-            logger.info("[RAG] Zero relevant chunks retrieved. Skipping Ollama LLM call.")
+            logger.info("[RAG] Zero relevant chunks retrieved. Skipping Groq LLM call.")
             return {
                 "answer": "I couldn't find enough information in your uploaded knowledge to answer this question.",
                 "sources": [],
@@ -813,9 +813,9 @@ RETRIEVED KNOWLEDGE CONTEXT:
 
 Provide a well-structured, comprehensive, and grounded answer to the user's question using the context above. If the context does not contain enough information, state that clearly."""
 
-        logger.info(f"[OLLAMA] Generation started | Model: {llm_service.model}")
+        logger.info(f"[GROQ] Generation started | Model: {llm_service.model}")
         answer = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.2)
-        logger.info("[OLLAMA] Generation completed")
+        logger.info("[GROQ] Generation completed")
 
         return {
             "answer": answer,
@@ -900,10 +900,10 @@ Create a clear, concise, and structured academic study summary based EXCLUSIVELY
 
 Ensure every point is directly supported by the context."""
 
-        logger.info(f"[OLLAMA] Generation started | Model: {llm_service.model}")
+        logger.info(f"[GROQ] Generation started | Model: {llm_service.model}")
         raw_summary = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.2)
         summary_text = clean_academic_notes(raw_summary)
-        logger.info("[OLLAMA] Generation completed")
+        logger.info("[GROQ] Generation completed")
         return {
             "title": f"Summary: {title}",
             "content": summary_text,
@@ -1012,10 +1012,10 @@ REQUIRED STRUCTURE:
 
 Maintain absolute fidelity to the source context."""
 
-        logger.info(f"[OLLAMA] Generation started | Model: {llm_service.model}")
+        logger.info(f"[GROQ] Generation started | Model: {llm_service.model}")
         raw_notes = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.2)
         notes_text = clean_academic_notes(raw_notes)
-        logger.info("[OLLAMA] Generation completed")
+        logger.info("[GROQ] Generation completed")
         return {
             "title": f"Notes: {title}",
             "content": notes_text,

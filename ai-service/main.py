@@ -18,14 +18,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("prepmind_ai_service")
 logger.info("[AI SERVICE] URL configured: http://localhost:%s", settings.AI_SERVICE_PORT)
-logger.info("[OLLAMA] Base URL configured: %s", settings.OLLAMA_BASE_URL)
-logger.info("[OLLAMA] Generation model configured: %s", settings.OLLAMA_LLM_MODEL)
-logger.info("[OLLAMA] Embedding model configured: %s", settings.OLLAMA_EMBEDDING_MODEL)
+logger.info("[GROQ] Primary text generation engine: %s (model: %s)", settings.GROQ_BASE_URL, settings.GROQ_MODEL)
+logger.info("[EMBEDDING] Local embedding engine: %s (model: %s)", settings.OLLAMA_BASE_URL, settings.OLLAMA_EMBEDDING_MODEL)
 
 app = FastAPI(
     title="PrepMind AI & Vector Service",
     version="1.0.0",
-    description="Python FastAPI service for Ollama embeddings, FAISS vector search, and RAG generation"
+    description="Python FastAPI service for Groq text generation, local embeddings, and FAISS vector search"
 )
 
 app.add_middleware(
@@ -121,11 +120,23 @@ class EvaluateRequest(BaseModel):
 
 @app.get("/health")
 async def health_check():
-    health = await llm_service.check_health()
+    ai_health = await llm_service.check_health()
+    embedding_healthy = await embedding_service.check_health()
+    is_ok = bool(ai_health.get("available") and embedding_healthy)
     return {
-        "status": "ok" if health.get("available") else "degraded",
+        "status": "ok" if is_ok else "degraded",
         "service": "prepmind-ai-service",
-        "ollama": health,
+        "primaryProvider": ai_health.get("primaryProvider", "groq"),
+        "fallbackProvider": ai_health.get("fallbackProvider", "ollama"),
+        "activeProvider": ai_health.get("activeProvider", "groq"),
+        "textGenerationProvider": ai_health.get("activeProvider", "groq"),
+        "groq": ai_health.get("groq", {}),
+        "ollama": ai_health.get("ollama", {}),
+        "embedding": {
+            "available": embedding_healthy,
+            "active_embedding": settings.OLLAMA_EMBEDDING_MODEL,
+            "dimension": 384,
+        },
         "embeddingDimension": 384,
         "threshold": settings.RAG_SIMILARITY_THRESHOLD,
         "topK": settings.TOP_K,
@@ -133,6 +144,15 @@ async def health_check():
             "basePath": str(settings.FAISS_BASE_PATH),
             "status": "active"
         }
+    }
+
+@app.get("/groq/diagnostic")
+@app.get("/ai/diagnostic")
+async def ai_diagnostic():
+    diag = await llm_service.check_health(force_refresh=True)
+    return {
+        "success": True,
+        "data": diag
     }
 
 @app.get("/user-stats/{user_id}")

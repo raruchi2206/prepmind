@@ -140,7 +140,7 @@ describe("COMPLETE RAG PIPELINE FIX TEST SUITE", { timeout: 300000 }, () => {
   test("RULE #36: Direct AI Service Health Check", async () => {
     const health = await aiServiceClient.checkHealth();
     assert.equal(health.service, "prepmind-ai-service");
-    assert.equal(health.ollama.available, true);
+    assert.equal(health.textGenerationProvider, "groq");
     assert.ok(health.embeddingDimension === 384);
   });
 

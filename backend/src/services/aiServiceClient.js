@@ -23,16 +23,17 @@ class AIServiceClient {
     const transport = (error && error.cause && error.cause.code) || rawMessage;
 
     if (typeof transport === "string") {
-      if (transport.includes("ECONNREFUSED")) {
+      const lower = transport.toLowerCase();
+      if (lower.includes("econnrefused")) {
         return `${context} is unavailable at ${this.baseUrl}. Reason: connection refused.`;
       }
-      if (transport.includes("timeout") || transport.includes("timed out")) {
+      if (lower.includes("timeout") || lower.includes("timed out") || lower.includes("timedout")) {
         return `${context} is unavailable at ${this.baseUrl}. Reason: request timeout.`;
       }
-      if (transport.includes("ENOTFOUND") || transport.includes("EAI_AGAIN")) {
+      if (lower.includes("enotfound") || lower.includes("eai_again")) {
         return `${context} is unavailable at ${this.baseUrl}. Reason: DNS or network lookup failed.`;
       }
-      if (transport.includes("fetch failed")) {
+      if (lower.includes("fetch failed")) {
         return `${context} is unavailable at ${this.baseUrl}. Reason: network request failed.`;
       }
       return `${context} is unavailable at ${this.baseUrl}. Reason: ${transport}.`;
@@ -110,41 +111,50 @@ class AIServiceClient {
 
   async checkHealth() {
     const endpoint = `${this.baseUrl}/health`;
-    console.log(`[AI SERVICE] URL: ${this.baseUrl}`);
-    console.log(`[AI SERVICE] Endpoint: /health`);
-    console.log(`[AI SERVICE] Request started`);
     try {
       const res = await fetch(endpoint);
-      console.log(`[AI SERVICE] Response status: ${res.status}`);
       if (!res.ok) {
         const errorText = await res.text();
-        console.log(`[AI SERVICE] Response body: ${errorText}`);
         return { available: false, error: `Status ${res.status}: ${errorText}` };
       }
 
       const payload = await res.json();
-      console.log(`[AI SERVICE] Response body: ${JSON.stringify(payload)}`);
+      const groqInfo = payload?.groq || {};
       const ollamaInfo = payload?.ollama || {};
-      const llmName = ollamaInfo.active_llm || "unknown";
-      const embeddingName = ollamaInfo.active_embedding || "unknown";
-      const health = {
+      const embeddingInfo = payload?.embedding || {};
+      const isAvailable =
+        payload?.status === "ok" ||
+        Boolean(groqInfo.available) ||
+        Boolean(ollamaInfo.available);
+
+      return {
         ...payload,
-        available: payload?.status === "ok" || Boolean(ollamaInfo.available),
+        available: isAvailable,
+        primaryProvider: payload?.primaryProvider || "groq",
+        fallbackProvider: payload?.fallbackProvider || "ollama",
+        activeProvider: payload?.activeProvider || "groq",
+        groq: groqInfo,
+        ollama: ollamaInfo,
+        embedding: embeddingInfo,
       };
-      console.log(`[AI SERVICE] Health check: PASS`);
-      console.log(
-        `[AI SERVICE] Ollama: ${ollamaInfo.available ? "PASS" : "FAIL"}`,
-      );
-      console.log(`[AI SERVICE] LLM: ${llmName}`);
-      console.log(`[AI SERVICE] Embedding: ${embeddingName}`);
-      return health;
     } catch (err) {
-      console.log(`[AI SERVICE] Error message: ${err && err.message ? err.message : String(err)}`);
       const message = this.formatConnectionError(err, "AI service");
       return {
         available: false,
         error: message,
       };
+    }
+  }
+
+  async getDiagnostic() {
+    try {
+      const res = await fetch(`${this.baseUrl}/ai/diagnostic`);
+      if (!res.ok) {
+        return { success: false, error: `Diagnostic endpoint returned ${res.status}` };
+      }
+      return await res.json();
+    } catch (err) {
+      return { success: false, error: err.message };
     }
   }
 

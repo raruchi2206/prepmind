@@ -5,4 +5,8 @@ numpy>=1.24.0
 httpx>=0.27.0
 pydantic>=2.6.0
 python-dotenv>=1.0.0
+<<<<<<< HEAD
 youtube-transcript-api>=1.2.0
+=======
+groq>=0.9.0
+>>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)

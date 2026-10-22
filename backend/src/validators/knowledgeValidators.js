@@ -1,26 +1,30 @@
 const { z } = require("zod");
+const { extractVideoId } = require("../services/extractors/youtubeExtractor");
 
 const createKnowledgeSourceSchema = z
   .object({
     title: z
       .string()
       .trim()
-      .min(1, "Title is required")
-      .max(200, "Title cannot exceed 200 characters"),
+      .max(200, "Title cannot exceed 200 characters")
+      .optional()
+      .default("YouTube Video Knowledge"),
     type: z.enum(["PDF", "IMAGE", "PPTX", "PPT", "DOCX", "DOC", "TXT", "YOUTUBE"], {
       errorMap: () => ({
         message: "Type must be one of PDF, IMAGE, PPTX, PPT, DOCX, DOC, TXT, or YOUTUBE",
       }),
     }),
-    youtubeUrl: z.string().trim().url("Invalid YouTube URL").optional(),
+    youtubeUrl: z.string().trim().optional(),
   })
   .superRefine((data, context) => {
-    if (data.type === "YOUTUBE" && !data.youtubeUrl) {
-      context.addIssue({
-        code: "custom",
-        path: ["youtubeUrl"],
-        message: "YouTube URL is required when type is YOUTUBE",
-      });
+    if (data.type === "YOUTUBE") {
+      if (!data.youtubeUrl || !extractVideoId(data.youtubeUrl)) {
+        context.addIssue({
+          code: "custom",
+          path: ["youtubeUrl"],
+          message: "A valid YouTube URL (watch link, youtu.be, or shorts) is required.",
+        });
+      }
     }
   });
 

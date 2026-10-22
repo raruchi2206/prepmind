@@ -219,11 +219,27 @@ function YouTubeSection({ onImport }) {
     setError("");
 
     try {
+<<<<<<< HEAD
       const ok = await onImport({ url: url.trim(), title: title.trim() || undefined });
       if (ok) {
         setUrl("");
         setTitle("");
       }
+=======
+      const res = await knowledgeApi.create({
+        title: title.trim() || "YouTube Video Knowledge",
+        type: "YOUTUBE",
+        youtubeUrl: url.trim(),
+      });
+      const createdSource = res?.data?.knowledgeSource;
+      setUrl("");
+      setTitle("");
+      if (onCreated && createdSource) {
+        await onCreated(createdSource.id, createdSource.title);
+      }
+    } catch (err) {
+      setError(err.message || "Failed to add YouTube link");
+>>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
     } finally {
       setLoading(false);
     }
@@ -358,6 +374,7 @@ export default function Knowledge({ theme }) {
     }
   };
 
+<<<<<<< HEAD
   // Runs /process while polling the source so the modal shows real backend stages
   const processWithPolling = async (sourceId) => {
     let stopped = false;
@@ -478,6 +495,30 @@ export default function Knowledge({ theme }) {
         error: err.message || "Failed to process document",
       }));
     } finally {
+=======
+  const handleProcessSource = async (id, title) => {
+    setError("");
+    setProcessingState({
+      title: title || "Processing Knowledge Source",
+      status: "EXTRACTING_CONTENT",
+      error: null,
+      isComplete: false,
+    });
+
+    try {
+      await knowledgeApi.process(id);
+      setProcessingState((prev) => ({
+        ...prev,
+        status: "READY",
+        isComplete: true,
+      }));
+      await loadKnowledge();
+    } catch (err) {
+      setProcessingState((prev) => ({
+        ...prev,
+        error: err.message || "Failed to process knowledge source",
+      }));
+>>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
       await loadKnowledge();
     }
   };
@@ -579,7 +620,14 @@ export default function Knowledge({ theme }) {
             </div>
           </div>
 
+<<<<<<< HEAD
           <YouTubeSection onImport={runYouTubeImport} />
+=======
+          <YouTubeSection
+            theme={theme}
+            onCreated={handleProcessSource}
+          />
+>>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
         </div>
 
         <section className="animate-fade-in-up delay-200">
@@ -691,6 +739,7 @@ export default function Knowledge({ theme }) {
                         >
                           View
                         </Link>
+<<<<<<< HEAD
                         {(isYouTube || knowledgeItem.status === "FAILED") && (
                           <button
                             type="button"
@@ -706,6 +755,23 @@ export default function Knowledge({ theme }) {
                           </button>
                         )}
                         {!isYouTube && (
+=======
+                        {knowledgeItem.status !== "READY" && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleProcessSource(
+                                knowledgeItem.id,
+                                knowledgeItem.title,
+                              )
+                            }
+                            className="btn btn-ghost btn-sm font-mono text-[10px] text-amber-500 hover:text-amber-400"
+                            title="Process transcript / document"
+                          >
+                            Process ↻
+                          </button>
+                        )}
+>>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
                         <button
                           type="button"
                           onClick={async () => {
@@ -920,6 +986,30 @@ export function KnowledgeDetail({ theme }) {
               </p>
             )}
           </div>
+
+          {chunks.length > 0 && (
+            <div className="mt-8 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5">
+              <p className="section-label">Indexed Chunks ({chunks.length})</p>
+              <div className="mt-4 space-y-3 max-h-96 overflow-y-auto pr-1">
+                {chunks.map((c, idx) => (
+                  <div
+                    key={c.id || idx}
+                    className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-xs"
+                  >
+                    <div className="flex items-center justify-between font-mono text-[10px] text-[var(--accent)] mb-1">
+                      <span>Chunk #{c.chunkIndex + 1}</span>
+                      {c.metadata?.timestamp && (
+                        <span className="text-amber-500 font-semibold">{c.metadata.timestamp}</span>
+                      )}
+                    </div>
+                    <p className="text-[var(--text-secondary)] line-clamp-3 leading-relaxed">
+                      {c.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link to={`/create?knowledge=${source.id}`} className="btn btn-primary flex-1">

@@ -73,7 +73,7 @@ const assessmentSchema = new mongoose.Schema(
           {
             id: mongoose.Schema.Types.Mixed,
             question: String,
-            type: String,
+            type: { type: String, default: "SHORT_ANSWER" },
             options: [String],
             correctAnswer: mongoose.Schema.Types.Mixed,
             expectedAnswer: String,

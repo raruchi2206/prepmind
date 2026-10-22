@@ -30,6 +30,7 @@ function mapExtensionToType(ext) {
   }
 }
 
+<<<<<<< HEAD
 /**
  * Creates (or, with reprocess=true, resets) the YouTube source for a video.
  * Returns { source, duplicate } — duplicate is set when the video already exists
@@ -97,9 +98,31 @@ async function createKnowledgeSource({ userId, title, type, youtubeUrl }) {
   if (type === "YOUTUBE") {
     return createYouTubeKnowledgeSource({ userId, url: youtubeUrl, title });
   }
+=======
+const { extractVideoId } = require("./extractors/youtubeExtractor");
+
+async function createKnowledgeSource({ userId, title, type, youtubeUrl }) {
+  if (type === "YOUTUBE") {
+    if (!youtubeUrl || !youtubeUrl.trim()) {
+      throw createHttpError(400, "YouTube video URL is required.");
+    }
+    const videoId = extractVideoId(youtubeUrl);
+    if (!videoId) {
+      throw createHttpError(
+        400,
+        "Invalid YouTube URL format. Please provide a standard watch link, youtu.be short link, or shorts URL.",
+      );
+    }
+  }
+
+  const finalTitle =
+    (title && title.trim()) ||
+    (type === "YOUTUBE" ? "YouTube Video Knowledge" : "Knowledge Source");
+
+>>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
   const source = await KnowledgeSource.create({
     userId,
-    title: title.trim(),
+    title: finalTitle,
     type,
     youtubeUrl: type === "YOUTUBE" ? youtubeUrl.trim() : null,
     status: "UPLOADING",

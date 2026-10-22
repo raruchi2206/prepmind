@@ -37,6 +37,7 @@ const knowledgeChunkSchema = new mongoose.Schema(
         type: String,
         default: null,
       },
+<<<<<<< HEAD
       startTime: {
         type: Number,
         default: null,
@@ -45,6 +46,24 @@ const knowledgeChunkSchema = new mongoose.Schema(
         type: Number,
         default: null,
       },
+=======
+      timestamp: {
+        type: String,
+        default: null,
+      },
+      startSeconds: {
+        type: Number,
+        default: null,
+      },
+      endSeconds: {
+        type: Number,
+        default: null,
+      },
+      videoUrl: {
+        type: String,
+        default: null,
+      },
+>>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
       sourceType: {
         type: String,
         enum: ["PDF", "IMAGE", "PPTX", "PPT", "DOCX", "DOC", "TXT", "YOUTUBE"],
