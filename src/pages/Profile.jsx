@@ -1,169 +1,224 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { authApi, notificationsApi, progressApi } from "../services/api";
 
-const focusTopics = [
-  ["Normalization", 82],
-  ["Transactions", 64],
-  ["Indexes", 78],
-];
-const preparation = [
-  ["Knowledge sources", "12"],
-  ["Recent assessments", "2"],
-  ["Focus topics", "4"],
-  ["Viva sessions", "1"],
+const PASSWORD_RULES = [
+  { test: (v) => v.length >= 8, label: "At least 8 characters" },
+  { test: (v) => /[A-Z]/.test(v), label: "An uppercase letter" },
+  { test: (v) => /[a-z]/.test(v), label: "A lowercase letter" },
+  { test: (v) => /[0-9]/.test(v), label: "A number" },
+  { test: (v) => /[^A-Za-z0-9]/.test(v), label: "A special character" },
 ];
 
-function Icon({ type }) {
-  const paths = {
-    user: (
-      <>
-        <path d="M20 21a8 8 0 0 0-16 0" />
-        <circle cx="12" cy="8" r="4" />
-      </>
-    ),
-    lock: (
-      <>
-        <rect x="5" y="11" width="14" height="10" rx="2" />
-        <path d="M8 11V8a4 4 0 1 1 8 0v3" />
-      </>
-    ),
-    sun: (
-      <>
-        <circle cx="12" cy="12" r="4.2" />
-        <path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56" />
-      </>
-    ),
-    bell: (
-      <>
-        <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
-        <path d="M10 20a2 2 0 0 0 4 0" />
-      </>
-    ),
-    close: (
-      <>
-        <path d="M18 6 6 18M6 6l12 12" />
-      </>
-    ),
-  };
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="17"
-      height="17"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {paths[type]}
-    </svg>
-  );
-}
+const inputClass =
+  "w-full rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:border-[var(--ring)] focus:outline-none";
 
-function SectionLabel({ children, colors }) {
+function Field({ id, label, hint, children }) {
   return (
-    <p
-      className="mb-3 text-[0.72rem] font-semibold uppercase tracking-[0.14em]"
-      style={{ color: colors.muted }}
-    >
+    <div>
+      <label htmlFor={id} className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">
+        {label}
+      </label>
       {children}
-    </p>
-  );
-}
-
-function Modal({ title, eyebrow, onClose, colors, children }) {
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/35 p-4">
-      <div
-        className="w-full max-w-md rounded-2xl border p-5 shadow-2xl"
-        style={{ background: colors.surface, borderColor: colors.border }}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            {eyebrow && (
-              <p
-                className="text-[0.72rem] font-semibold uppercase tracking-[0.14em]"
-                style={{ color: colors.muted }}
-              >
-                {eyebrow}
-              </p>
-            )}
-            <h2
-              className="mt-1 text-[1.5rem] font-semibold"
-              style={{ color: colors.text }}
-            >
-              {title}
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-lg"
-            style={{ color: colors.muted }}
-            aria-label={`Close ${title}`}
-          >
-            <Icon type="close" />
-          </button>
-        </div>
-        {children}
-      </div>
+      {hint && <p className="mt-1 text-[0.7rem] text-[var(--text-secondary)]">{hint}</p>}
     </div>
   );
 }
 
-function SettingsRow({
-  icon,
-  title,
-  description,
-  value,
-  onClick,
-  colors,
-  light,
-}) {
+function Feedback({ error, success }) {
+  if (error) {
+    return (
+      <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+        {error}
+      </p>
+    );
+  }
+  if (success) {
+    return (
+      <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400">
+        {success}
+      </p>
+    );
+  }
+  return null;
+}
+
+function ProfileForm({ user, updateProfile }) {
+  const [form, setForm] = useState({ name: user?.name || "", username: user?.username || "", email: user?.email || "" });
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [state, setState] = useState({ saving: false, error: "", success: "" });
+
+  useEffect(() => {
+    setForm({ name: user?.name || "", username: user?.username || "", email: user?.email || "" });
+  }, [user?.name, user?.username, user?.email]);
+
+  const emailChanged = form.email.trim().toLowerCase() !== (user?.email || "").toLowerCase();
+  const changes = {};
+  if (form.name.trim() && form.name.trim() !== user?.name) changes.name = form.name.trim();
+  if (form.username.trim() && form.username.trim().toLowerCase() !== user?.username) changes.username = form.username.trim();
+  if (emailChanged) changes.email = form.email.trim();
+  const dirty = Object.keys(changes).length > 0;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!dirty) return;
+    if (emailChanged && !currentPassword) {
+      setState({ saving: false, error: "Enter your current password to change your email.", success: "" });
+      return;
+    }
+    setState({ saving: true, error: "", success: "" });
+    try {
+      await updateProfile(emailChanged ? { ...changes, currentPassword } : changes);
+      setCurrentPassword("");
+      setState({ saving: false, error: "", success: "Profile updated." });
+    } catch (err) {
+      setState({ saving: false, error: err.message || "Could not update your profile.", success: "" });
+    }
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center gap-3 border-b py-4 text-left transition-colors last:border-b-0 hover:bg-[var(--surface-elevated)]"
-    >
-      <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-        style={{
-          background: light ? "#F1EEE7" : "#1F150C",
-          color: colors.accent,
-        }}
-      >
-        <Icon type={icon} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span
-          className="block text-[0.98rem] font-medium"
-          style={{ color: colors.text }}
-        >
-          {title}
-        </span>
-        <span
-          className="mt-0.5 block text-[0.82rem]"
-          style={{ color: colors.muted }}
-        >
-          {description}
-        </span>
-      </span>
-      {value && (
-        <span
-          className="text-[0.82rem] font-medium"
-          style={{ color: colors.muted }}
-        >
-          {value}
-        </span>
+    <form onSubmit={submit} className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field id="profile-name" label="Display name">
+          <input
+            id="profile-name"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            minLength={2}
+            maxLength={80}
+            className={inputClass}
+            autoComplete="name"
+          />
+        </Field>
+        <Field id="profile-username" label="Username" hint="Lowercase letters, numbers, dots, dashes or underscores.">
+          <input
+            id="profile-username"
+            value={form.username}
+            onChange={(e) => setForm({ ...form, username: e.target.value })}
+            minLength={3}
+            maxLength={32}
+            className={inputClass}
+            autoComplete="username"
+          />
+        </Field>
+      </div>
+      <Field id="profile-email" label="Email address" hint="Used to sign in and to reset your password.">
+        <input
+          id="profile-email"
+          type="email"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          className={inputClass}
+          autoComplete="email"
+          required
+        />
+      </Field>
+      {emailChanged && (
+        <Field id="profile-current-password" label="Current password" hint="Required to change your email address.">
+          <input
+            id="profile-current-password"
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            className={inputClass}
+            autoComplete="current-password"
+          />
+        </Field>
       )}
-      <span className="text-lg" style={{ color: colors.muted }}>
-        ›
-      </span>
-    </button>
+      <Feedback error={state.error} success={state.success} />
+      <button type="submit" disabled={!dirty || state.saving} className="btn btn-primary disabled:opacity-50">
+        {state.saving ? "Saving…" : "Save changes"}
+      </button>
+    </form>
+  );
+}
+
+function PasswordForm() {
+  const [form, setForm] = useState({ current: "", next: "", confirm: "" });
+  const [state, setState] = useState({ saving: false, error: "", success: "" });
+  const unmet = PASSWORD_RULES.filter((rule) => !rule.test(form.next));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.current) {
+      setState({ saving: false, error: "Enter your current password.", success: "" });
+      return;
+    }
+    if (unmet.length > 0) {
+      setState({ saving: false, error: `New password needs: ${unmet.map((r) => r.label.toLowerCase()).join(", ")}.`, success: "" });
+      return;
+    }
+    if (form.next !== form.confirm) {
+      setState({ saving: false, error: "New passwords do not match.", success: "" });
+      return;
+    }
+    setState({ saving: true, error: "", success: "" });
+    try {
+      await authApi.changePassword({
+        currentPassword: form.current,
+        newPassword: form.next,
+        confirmPassword: form.confirm,
+      });
+      setForm({ current: "", next: "", confirm: "" });
+      setState({
+        saving: false,
+        error: "",
+        success: "Password changed. Other devices have been signed out.",
+      });
+    } catch (err) {
+      setState({ saving: false, error: err.message || "Could not change your password.", success: "" });
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <Field id="password-current" label="Current password">
+        <input
+          id="password-current"
+          type="password"
+          value={form.current}
+          onChange={(e) => setForm({ ...form, current: e.target.value })}
+          className={inputClass}
+          autoComplete="current-password"
+        />
+      </Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field id="password-new" label="New password">
+          <input
+            id="password-new"
+            type="password"
+            value={form.next}
+            onChange={(e) => setForm({ ...form, next: e.target.value })}
+            className={inputClass}
+            autoComplete="new-password"
+          />
+        </Field>
+        <Field id="password-confirm" label="Confirm new password">
+          <input
+            id="password-confirm"
+            type="password"
+            value={form.confirm}
+            onChange={(e) => setForm({ ...form, confirm: e.target.value })}
+            className={inputClass}
+            autoComplete="new-password"
+          />
+        </Field>
+      </div>
+      {form.next && (
+        <ul className="grid gap-1 text-[0.72rem] sm:grid-cols-2">
+          {PASSWORD_RULES.map((rule) => (
+            <li key={rule.label} className={rule.test(form.next) ? "text-emerald-400" : "text-[var(--text-secondary)]"}>
+              {rule.test(form.next) ? "✓" : "○"} {rule.label}
+            </li>
+          ))}
+        </ul>
+      )}
+      <Feedback error={state.error} success={state.success} />
+      <button type="submit" disabled={state.saving} className="btn btn-primary disabled:opacity-50">
+        {state.saving ? "Updating…" : "Change password"}
+      </button>
+    </form>
   );
 }
 
@@ -171,44 +226,25 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
   const navigate = useNavigate();
   const { user, updateProfile, logout } = useAuth();
   const light = theme === "light";
-  const colors = {
-    surface: light ? "#FFFFFF" : "#14100C",
-    elevated: light ? "#F1EEE7" : "#1F150C",
-    text: light ? "#17130F" : "#F7F3E8",
-    muted: light ? "#5F574D" : "#B8B0A3",
-    accent: light ? "#412D15" : "#E1DCC9",
-    border: light ? "#E5DFD3" : "rgba(225,220,201,0.14)",
-  };
-  const [editOpen, setEditOpen] = useState(false);
-  const [passwordOpen, setPasswordOpen] = useState(false);
-  const [appearanceOpen, setAppearanceOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [profile, setProfile] = useState({
-    name: user?.name || "",
-    email: user?.email || "",
-  });
-  const [profileError, setProfileError] = useState("");
-  const [password, setPassword] = useState({
-    current: "",
-    next: "",
-    confirm: "",
-  });
-  const [passwordError, setPasswordError] = useState("");
-  const [passwordSuccess, setPasswordSuccess] = useState("");
-  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
-  const [profileSubmitting, setProfileSubmitting] = useState(false);
-  const currentTheme = light ? "light" : "dark";
-  const themeOptions = [
-    { label: "Light", value: "light" },
-    { label: "Dark", value: "dark" },
-    { label: "System", value: "system" },
-  ];
+  const [stats, setStats] = useState(null);
+  const [statsState, setStatsState] = useState("loading");
+  const [unread, setUnread] = useState(null);
+  const [notifMessage, setNotifMessage] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
 
-  const setTheme = (value) => {
-    if (onSetTheme) onSetTheme(value);
-    else if (value !== "system" && value !== currentTheme) onThemeToggle();
-    setAppearanceOpen(false);
-  };
+  useEffect(() => {
+    progressApi
+      .get()
+      .then((res) => {
+        setStats(res?.data?.totals || null);
+        setStatsState("ready");
+      })
+      .catch(() => setStatsState("error"));
+    notificationsApi
+      .unreadCount()
+      .then((res) => setUnread(res?.data?.unreadCount ?? 0))
+      .catch(() => setUnread(null));
+  }, []);
 
   const initials = (user?.name || "User")
     .split(" ")
@@ -217,531 +253,163 @@ export default function Profile({ theme, onThemeToggle, onSetTheme }) {
     .slice(0, 2)
     .toUpperCase();
 
-  const handleProfileSave = async () => {
+  const setTheme = (value) => {
+    if (onSetTheme) onSetTheme(value);
+    else if (value !== (light ? "light" : "dark")) onThemeToggle();
+  };
+
+  const markAllRead = async () => {
     try {
-      setProfileError("");
-      setProfileSubmitting(true);
-      await updateProfile({ name: profile.name });
-      setEditOpen(false);
-    } catch (error) {
-      setProfileError(error.message);
-    } finally {
-      setProfileSubmitting(false);
+      await notificationsApi.markAllRead();
+      setUnread(0);
+      setNotifMessage("All notifications marked as read.");
+    } catch (err) {
+      setNotifMessage(err.message || "Could not update notifications.");
     }
   };
 
-  const handlePasswordSave = async () => {
-    setPasswordError("");
-    setPasswordSuccess("");
-    if (!password.current) {
-      setPasswordError("Please enter your current password.");
-      return;
-    }
-    if (password.next.length < 8) {
-      setPasswordError("New password must be at least 8 characters long.");
-      return;
-    }
-    if (password.next !== password.confirm) {
-      setPasswordError("New passwords do not match.");
-      return;
-    }
-    setPasswordSubmitting(true);
+  const handleLogout = async () => {
+    setLoggingOut(true);
     try {
-      await authApi.changePassword({
-        currentPassword: password.current,
-        newPassword: password.next,
-        confirmPassword: password.confirm,
-      });
-      setPasswordSuccess("Password changed successfully.");
-      setPassword({ current: "", next: "", confirm: "" });
-      setTimeout(() => {
-        setPasswordOpen(false);
-        setPasswordSuccess("");
-      }, 1500);
-    } catch (error) {
-      setPasswordError(error.message || "Failed to change password.");
+      await logout();
     } finally {
-      setPasswordSubmitting(false);
+      navigate("/login", { replace: true });
     }
   };
+
+  const statTiles = [
+    { label: "Ready sources", value: stats?.sourcesReady, to: "/knowledge" },
+    { label: "Quizzes completed", value: stats?.quizzesCompleted, to: "/progress" },
+    { label: "Quiz accuracy", value: stats?.accuracy == null ? "—" : `${stats.accuracy}%`, to: "/progress" },
+    {
+      label: "Study items created",
+      value: stats ? stats.summaries + stats.notes + stats.quizzesGenerated + stats.practicePapers + stats.vivas : undefined,
+      to: "/history",
+    },
+  ];
 
   return (
-    <div
-      className="page-shell"
-      style={{ background: light ? "#F8F7F3" : "#000000" }}
-    >
-      <div className="page-inner max-w-6xl">
-        <Link
-          to="/dashboard"
-          className="inline-flex items-center gap-2 text-sm font-medium"
-          style={{ color: colors.muted }}
-        >
-          ← Dashboard
-        </Link>
-
-        <header className="mt-8 animate-fade-in-up">
+    <div className="page-shell" style={{ background: light ? "#F8F7F3" : "#000000" }}>
+      <div className="page-inner max-w-5xl">
+        <div className="mb-8 animate-fade-in-up">
           <p className="section-label">Account</p>
           <h1 className="page-title mt-3">Profile</h1>
-          <p className="page-subtitle mt-3 max-w-xl">
-            Manage your PrepMind account and see your preparation activity.
-          </p>
-        </header>
+        </div>
 
-        <section
-          className="mt-10 border-b pb-8 animate-fade-in-up delay-100"
-          style={{ borderColor: colors.border }}
-        >
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-5">
-              <div
-                className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border text-xl font-semibold"
-                style={{
-                  background: light ? "#EDE4D7" : "#211910",
-                  borderColor: colors.border,
-                  color: colors.accent,
-                }}
-              >
-                {user?.avatar || initials}
-              </div>
-              <div>
-                <h2
-                  className="text-2xl font-semibold"
-                  style={{ color: colors.text }}
-                >
-                  {profile.name}
-                </h2>
-                <p className="mt-1 text-base" style={{ color: colors.muted }}>
-                  {profile.email}
-                </p>
-                <p
-                  className="mt-2 text-[0.76rem] font-medium uppercase tracking-[0.12em]"
-                  style={{ color: colors.muted }}
-                >
-                  Free Plan
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setEditOpen(true)}
-              className="btn btn-secondary w-fit"
-            >
-              Edit profile →
-            </button>
+        <section className="panel flex flex-col gap-5 p-6 animate-fade-in-up sm:flex-row sm:items-center">
+          <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--accent)] text-xl font-semibold text-[var(--accent-foreground)]">
+            {user?.avatar || initials}
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="break-words font-display text-2xl text-[var(--text-primary)]">{user?.name}</h2>
+            <p className="mt-1 break-all text-sm text-[var(--text-secondary)]">
+              @{user?.username} · {user?.email}
+            </p>
+            {user?.createdAt && (
+              <p className="mt-1 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
+                Member since {new Date(user.createdAt).toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+              </p>
+            )}
           </div>
         </section>
 
-        <div className="mt-8 grid gap-8 lg:grid-cols-[1.35fr_0.85fr]">
-          <main className="space-y-8">
-            <section
-              className="border-b pb-7"
-              style={{ borderColor: colors.border }}
-            >
-              <SectionLabel colors={colors}>Quick preparation</SectionLabel>
-              <div
-                className="grid grid-cols-3 divide-x"
-                style={{ borderColor: colors.border }}
-              >
-                {[
-                  ["12", "Sources"],
-                  ["48", "Topics"],
-                  ["83%", "Avg score"],
-                ].map(([value, label]) => (
-                  <div key={label} className="px-4 first:pl-0 last:pr-0">
-                    <p
-                      className="text-3xl font-semibold"
-                      style={{ color: colors.text }}
-                    >
-                      {value}
-                    </p>
-                    <p
-                      className="mt-2 text-[0.72rem] font-medium uppercase tracking-[0.1em]"
-                      style={{ color: colors.muted }}
-                    >
-                      {label}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section
-              className="border-b pb-7"
-              style={{ borderColor: colors.border }}
-            >
-              <SectionLabel colors={colors}>Your preparation</SectionLabel>
-              <div>
-                {preparation.map(([label, value]) => (
-                  <Link
-                    key={label}
-                    to={
-                      label === "Knowledge sources" ? "/knowledge" : "/history"
-                    }
-                    className="flex items-center gap-3 border-b py-3.5 transition-colors last:border-b-0 hover:bg-[var(--surface-elevated)]"
-                  >
-                    <span
-                      className="h-1.5 w-1.5 rounded-full"
-                      style={{ background: colors.accent }}
-                    />
-                    <span
-                      className="flex-1 text-[0.98rem]"
-                      style={{ color: colors.text }}
-                    >
-                      {label}
-                    </span>
-                    <span
-                      className="font-semibold"
-                      style={{ color: colors.muted }}
-                    >
-                      {value}
-                    </span>
-                    <span className="text-lg" style={{ color: colors.muted }}>
-                      →
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            </section>
-
-            <section>
-              <SectionLabel colors={colors}>Recent focus</SectionLabel>
-              <div className="space-y-4">
-                {focusTopics.map(([label, value]) => (
-                  <div key={label}>
-                    <div className="mb-2 flex items-center justify-between text-[0.9rem]">
-                      <span style={{ color: colors.text }}>{label}</span>
-                      <span style={{ color: colors.muted }}>{value}%</span>
-                    </div>
-                    <div
-                      className="h-2 rounded-full"
-                      style={{ background: light ? "#E9E3D9" : "#2A211B" }}
-                    >
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${value}%`,
-                          background: colors.accent,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </main>
-
-          <aside className="space-y-8">
-            <section>
-              <SectionLabel colors={colors}>Account</SectionLabel>
-              <div className="border-t" style={{ borderColor: colors.border }}>
-                <SettingsRow
-                  icon="user"
-                  title="Profile information"
-                  description="Update your name and email"
-                  onClick={() => setEditOpen(true)}
-                  colors={colors}
-                  light={light}
-                />
-                <SettingsRow
-                  icon="lock"
-                  title="Change password"
-                  description="Secure your account"
-                  onClick={() => setPasswordOpen(true)}
-                  colors={colors}
-                  light={light}
-                />
-              </div>
-            </section>
-
-            <section>
-              <SectionLabel colors={colors}>Preferences</SectionLabel>
-              <div className="border-t" style={{ borderColor: colors.border }}>
-                <SettingsRow
-                  icon="sun"
-                  title="Appearance"
-                  description="Choose Light, Dark or System"
-                  value={light ? "Light" : "Dark"}
-                  onClick={() => setAppearanceOpen((open) => !open)}
-                  colors={colors}
-                  light={light}
-                />
-                {appearanceOpen && (
-                  <div className="border-b py-3">
-                    <div className="grid grid-cols-3 gap-2">
-                      {themeOptions.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setTheme(option.value)}
-                          className="rounded-xl border px-2 py-2 text-[0.78rem] font-medium"
-                          style={{
-                            borderColor:
-                              option.value === currentTheme
-                                ? colors.accent
-                                : colors.border,
-                            background:
-                              option.value === currentTheme
-                                ? colors.elevated
-                                : "transparent",
-                            color: colors.text,
-                          }}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+        <section className="mt-6 grid grid-cols-2 gap-3 animate-fade-in-up lg:grid-cols-4">
+          {statTiles.map((tile) => (
+            <Link key={tile.label} to={tile.to} className="panel p-4 transition-colors hover:border-[var(--ring)]">
+              <p className="font-display text-3xl text-[var(--text-primary)]">
+                {statsState === "loading" ? (
+                  <span className="inline-block h-8 w-12 animate-pulse rounded bg-[var(--surface-elevated)]" />
+                ) : statsState === "error" ? (
+                  "—"
+                ) : (
+                  (tile.value ?? 0)
                 )}
-                <SettingsRow
-                  icon="bell"
-                  title="Notifications"
-                  description="Manage PrepMind notifications"
-                  value="On"
-                  onClick={() => setNotificationsOpen(true)}
-                  colors={colors}
-                  light={light}
-                />
-                <div className="flex items-center gap-3 border-b py-4">
-                  <span
-                    className="flex h-9 w-9 items-center justify-center rounded-xl"
-                    style={{
-                      background: light ? "#F1EEE7" : "#1F150C",
-                      color: colors.accent,
-                    }}
+              </p>
+              <p className="mt-1 font-mono text-[0.6rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
+                {tile.label}
+              </p>
+            </Link>
+          ))}
+        </section>
+        {statsState === "error" && (
+          <p className="mt-2 text-xs text-[var(--text-secondary)]">Study statistics are unavailable right now.</p>
+        )}
+
+        <div className="mt-8 grid gap-6 lg:grid-cols-2">
+          <section className="panel p-6">
+            <p className="section-label">Profile information</p>
+            <div className="mt-5">
+              <ProfileForm user={user} updateProfile={updateProfile} />
+            </div>
+          </section>
+
+          <section className="panel p-6">
+            <p className="section-label">Password</p>
+            <div className="mt-5">
+              <PasswordForm />
+            </div>
+          </section>
+
+          <section className="panel p-6">
+            <p className="section-label">Appearance</p>
+            <div className="mt-5 flex gap-2" role="group" aria-label="Theme">
+              {[
+                { label: "Light", value: "light" },
+                { label: "Dark", value: "dark" },
+              ].map((option) => {
+                const active = (light ? "light" : "dark") === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setTheme(option.value)}
+                    aria-pressed={active}
+                    className={`btn btn-sm flex-1 ${active ? "btn-primary" : "btn-ghost"}`}
                   >
-                    文
-                  </span>
-                  <span className="flex-1">
-                    <span
-                      className="block text-[0.98rem] font-medium"
-                      style={{ color: colors.text }}
-                    >
-                      Language
-                    </span>
-                    <span
-                      className="mt-0.5 block text-[0.82rem]"
-                      style={{ color: colors.muted }}
-                    >
-                      English
-                    </span>
-                  </span>
-                </div>
-              </div>
-            </section>
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
-            <section
-              className="border-t pt-6"
-              style={{ borderColor: colors.border }}
+          <section className="panel p-6">
+            <p className="section-label">Notifications</p>
+            <p className="mt-4 text-sm text-[var(--text-secondary)]">
+              PrepMind notifies you when uploads finish, fail or need review, and when generated study material is ready.
+            </p>
+            <p className="mt-3 text-sm text-[var(--text-primary)]">
+              {unread == null ? "Unread count unavailable." : `${unread} unread notification${unread === 1 ? "" : "s"}.`}
+            </p>
+            {notifMessage && <p className="mt-2 text-xs text-[var(--text-secondary)]">{notifMessage}</p>}
+            <button
+              type="button"
+              onClick={markAllRead}
+              disabled={!unread}
+              className="btn btn-secondary btn-sm mt-4 disabled:opacity-50"
             >
-              <p
-                className="text-base font-medium"
-                style={{ color: colors.text }}
-              >
-                Log out of PrepMind
-              </p>
-              <p className="mt-1 text-sm" style={{ color: colors.muted }}>
-                You can sign back in anytime.
-              </p>
-              <button
-                type="button"
-                onClick={async () => {
-                  await logout();
-                  navigate("/login", { replace: true });
-                }}
-                className="mt-4 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors hover:border-[#D14A4A] hover:text-[#D14A4A]"
-                style={{ borderColor: colors.border, color: colors.muted }}
-              >
-                Log out
-              </button>
-            </section>
-          </aside>
+              Mark all as read
+            </button>
+          </section>
         </div>
-      </div>
 
-      {editOpen && (
-        <Modal
-          title="Edit profile"
-          eyebrow="Personal information"
-          onClose={() => setEditOpen(false)}
-          colors={colors}
-        >
-          <div className="mt-5 space-y-4">
-            {profileError && (
-              <p
-                role="alert"
-                className="rounded-xl border border-[#A84B43]/40 bg-[#A84B43]/10 px-3 py-2 text-sm text-[#C97B70]"
-              >
-                {profileError}
-              </p>
-            )}
-            {[
-              ["Full name", "name"],
-              ["Email", "email"],
-            ].map(([label, key]) => (
-              <div key={key}>
-                <label
-                  className="mb-1.5 block text-sm font-medium"
-                  style={{ color: colors.text }}
-                >
-                  {label}
-                </label>
-                <input
-                  disabled={key === "email"}
-                  value={profile[key]}
-                  onChange={(event) =>
-                    setProfile((current) => ({
-                      ...current,
-                      [key]: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-xl border px-3.5 py-3 outline-none"
-                  style={{
-                    background: light ? "#F7F4EE" : "#17120E",
-                    borderColor: colors.border,
-                    color: colors.text,
-                  }}
-                />
-              </div>
-            ))}
+        <section className="panel mt-6 flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-base font-medium text-[var(--text-primary)]">Log out of PrepMind</p>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">
+              Signs you out on every device. You can sign back in anytime.
+            </p>
           </div>
-          <div className="mt-6 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setEditOpen(false)}
-              className="rounded-xl px-4 py-2.5 text-sm"
-              style={{ color: colors.muted }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleProfileSave}
-              className="rounded-xl px-4 py-2.5 text-sm font-semibold"
-              style={{
-                background: colors.accent,
-                color: light ? "#FFFFFF" : "#17130F",
-              }}
-            >
-              Save changes →
-            </button>
-          </div>
-        </Modal>
-      )}
-      {passwordOpen && (
-        <Modal
-          title="Change password"
-          onClose={() => {
-            setPasswordOpen(false);
-            setPasswordError("");
-            setPasswordSuccess("");
-          }}
-          colors={colors}
-        >
-          <div className="mt-5 space-y-4">
-            {passwordError && (
-              <p
-                role="alert"
-                className="rounded-xl border border-[#A84B43]/40 bg-[#A84B43]/10 px-3 py-2 text-sm text-[#C97B70]"
-              >
-                {passwordError}
-              </p>
-            )}
-            {passwordSuccess && (
-              <p
-                role="status"
-                className="rounded-xl border border-[#488456]/40 bg-[#488456]/10 px-3 py-2 text-sm text-[#66B87B]"
-              >
-                {passwordSuccess}
-              </p>
-            )}
-            {[
-              ["Current password", "current"],
-              ["New password", "next"],
-              ["Confirm password", "confirm"],
-            ].map(([label, key]) => (
-              <div key={key}>
-                <label
-                  className="mb-1.5 block text-sm font-medium"
-                  style={{ color: colors.text }}
-                >
-                  {label}
-                </label>
-                <input
-                  type="password"
-                  value={password[key]}
-                  onChange={(event) =>
-                    setPassword((current) => ({
-                      ...current,
-                      [key]: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-xl border px-3.5 py-3 outline-none"
-                  style={{
-                    background: light ? "#F7F4EE" : "#17120E",
-                    borderColor: colors.border,
-                    color: colors.text,
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="mt-6 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setPasswordOpen(false);
-                setPasswordError("");
-                setPasswordSuccess("");
-              }}
-              className="rounded-xl px-4 py-2.5 text-sm"
-              style={{ color: colors.muted }}
-            >
-              Cancel
-            </button>
-            <button
-              disabled={passwordSubmitting}
-              type="button"
-              onClick={handlePasswordSave}
-              className="rounded-xl px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
-              style={{
-                background: colors.accent,
-                color: light ? "#FFFFFF" : "#17130F",
-              }}
-            >
-              {passwordSubmitting ? "Updating..." : "Update password →"}
-            </button>
-          </div>
-        </Modal>
-      )}
-      {notificationsOpen && (
-        <Modal
-          title="Notifications"
-          eyebrow="Preferences"
-          onClose={() => setNotificationsOpen(false)}
-          colors={colors}
-        >
-          <div className="mt-5 space-y-3">
-            {[
-              { label: "DBMS Quiz completed — 84%", time: "2m ago" },
-              { label: "Notes exported as PDF", time: "1h ago" },
-              { label: "New knowledge ready: OS Lecture", time: "Yesterday" },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className="rounded-xl border p-3"
-                style={{ borderColor: colors.border }}
-              >
-                <p className="text-sm" style={{ color: colors.text }}>
-                  {item.label}
-                </p>
-                <p className="mt-1 text-xs" style={{ color: colors.muted }}>
-                  {item.time}
-                </p>
-              </div>
-            ))}
-          </div>
-        </Modal>
-      )}
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="btn btn-ghost hover:border-red-400 hover:text-red-400 disabled:opacity-50"
+          >
+            {loggingOut ? "Logging out…" : "Log out"}
+          </button>
+        </section>
+      </div>
     </div>
   );
 }

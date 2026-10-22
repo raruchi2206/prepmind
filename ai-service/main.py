@@ -8,9 +8,10 @@ from pydantic import BaseModel, Field
 from config.settings import settings
 from services.embedding_service import embedding_service
 from services.faiss_service import faiss_service
-from services.llm_service import llm_service
+from services.llm_service import RateLimitError, llm_service
 from services.rag_service import rag_service
 from services.youtube_service import TranscriptError, fetch_transcript
+from services.content_classifier import classify_educational_content
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,6 +35,12 @@ async def warm_up_embedding_model():
     # Load all-MiniLM-L6-v2 in the background so the first upload isn't slowed by model loading
     import asyncio
     asyncio.create_task(embedding_service.warm_up())
+
+@app.exception_handler(RateLimitError)
+async def rate_limit_handler(request, exc: RateLimitError):
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(status_code=429, content={"detail": str(exc)})
 
 app.add_middleware(
     CORSMiddleware,
@@ -70,6 +77,18 @@ class IndexSourceRequest(BaseModel):
     userId: str
     knowledgeSourceId: str
     chunks: List[ChunkItem]
+    jobId: Optional[str] = None
+
+
+class ClassifyContentRequest(BaseModel):
+    title: Optional[str] = None
+    text: str = Field(min_length=1, max_length=60000)
+    wordCount: Optional[int] = None
+
+
+# Job IDs whose indexing was cancelled by the backend; checked between embedding batches
+cancelled_jobs: set = set()
+INDEX_BATCH_SIZE = 64
 
 class SearchRequest(BaseModel):
     userId: str
@@ -183,6 +202,8 @@ async def extract_pdf_endpoint(payload: ExtractPdfRequest):
                     pages.append({"page": idx + 1, "text": cleaned})
                     total_chars += len(cleaned)
                     total_words += len(cleaned.split())
+        except RateLimitError:
+            raise
         except Exception as e:
             logger.warning(f"[INGESTION] pypdf extraction warning: {e}")
         
@@ -224,6 +245,8 @@ async def extract_pdf_endpoint(payload: ExtractPdfRequest):
             }
         }
     except HTTPException:
+        raise
+    except RateLimitError:
         raise
     except Exception as e:
         logger.error(f"[INGESTION] Error extracting PDF {payload.filePath}: {e}")
@@ -283,6 +306,8 @@ async def extract_image_endpoint(payload: ExtractImageRequest):
         }
     except HTTPException:
         raise
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"[INGESTION] OCR error extracting image {payload.filePath}: {e}")
         raise HTTPException(
@@ -305,6 +330,8 @@ async def create_embeddings(payload: EmbeddingsRequest):
     try:
         embeddings = await embedding_service.get_embeddings(payload.texts)
         return {"success": True, "embeddings": embeddings}
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"Error generating embeddings: {e}")
         raise HTTPException(
@@ -332,8 +359,23 @@ async def index_source(payload: IndexSourceRequest):
             return {"success": True, "indexedCount": 0}
 
         texts = [c.text for c in payload.chunks]
-        embeddings = await embedding_service.get_embeddings(texts)
-        
+        embeddings: List[List[float]] = []
+        # Embed in batches so a cancellation stops work at the next batch boundary.
+        # FAISS is only written after every batch succeeds, so a cancelled job changes nothing.
+        for start in range(0, len(texts), INDEX_BATCH_SIZE):
+            if payload.jobId and payload.jobId in cancelled_jobs:
+                logger.info(f"[INGESTION] Job {payload.jobId} cancelled after {start} of {len(texts)} chunks")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={"code": "CANCELLED", "message": "Indexing was cancelled."},
+                )
+            embeddings.extend(await embedding_service.get_embeddings(texts[start:start + INDEX_BATCH_SIZE]))
+        if payload.jobId and payload.jobId in cancelled_jobs:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "CANCELLED", "message": "Indexing was cancelled."},
+            )
+
         chunks_data = [
             {
                 "id": c.id,
@@ -351,11 +393,40 @@ async def index_source(payload: IndexSourceRequest):
         )
         logger.info(f"[INGESTION] FAISS index updated: {indexed_count} vectors inserted")
         return {"success": True, "indexedCount": indexed_count}
+    except HTTPException:
+        raise
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"[INGESTION] Failed to index source: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"FAISS indexing failed: {str(e)}"
+        )
+
+@app.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    if len(job_id) > 100:
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+    cancelled_jobs.add(job_id)
+    # Bound memory: job IDs are unique per run, old ones are no longer needed
+    if len(cancelled_jobs) > 1000:
+        cancelled_jobs.clear()
+        cancelled_jobs.add(job_id)
+    return {"success": True, "jobId": job_id, "cancelled": True}
+
+@app.post("/classify/educational")
+async def classify_educational_endpoint(payload: ClassifyContentRequest):
+    try:
+        result = await classify_educational_content(payload.text, payload.title, payload.wordCount)
+        return {"success": True, "data": result}
+    except RateLimitError:
+        raise
+    except Exception as e:
+        logger.error(f"[CLASSIFY] Classification failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Content classification failed: {str(e)}",
         )
 
 @app.post("/search")
@@ -373,6 +444,8 @@ async def search_vectors(payload: SearchRequest):
         )
         logger.info(f"[RAG] FAISS search completed: {len(matches)} matches found")
         return {"success": True, "matches": matches}
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"[RAG] Vector search failed: {e}")
         raise HTTPException(
@@ -385,6 +458,8 @@ async def delete_source(payload: DeleteSourceRequest):
     try:
         removed = faiss_service.delete_source_vectors(payload.userId, payload.knowledgeSourceId)
         return {"success": True, "removedCount": removed}
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"Error deleting vectors for source: {e}")
         raise HTTPException(
@@ -401,6 +476,8 @@ async def rag_ask(payload: AskRequest):
             conversation_history=payload.conversationHistory
         )
         return {"success": True, "data": result}
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"Error in RAG ask: {e}")
         raise HTTPException(
@@ -416,6 +493,11 @@ async def rag_summary(payload: SummaryRequest):
             title=payload.title
         )
         return {"success": True, "data": result}
+    except ValueError as e:
+        # Empty source or unusable model output: not retryable as-is
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"Error in RAG summary: {e}")
         raise HTTPException(
@@ -431,6 +513,11 @@ async def rag_notes(payload: NotesRequest):
             title=payload.title
         )
         return {"success": True, "data": result}
+    except ValueError as e:
+        # Empty source or unusable model output: not retryable as-is
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"Error in RAG notes: {e}")
         raise HTTPException(
@@ -452,6 +539,8 @@ async def rag_quiz(payload: QuizRequest):
             retry=payload.retry,
         )
         return {"success": True, "data": result}
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"Error in RAG quiz: {e}")
         raise HTTPException(
@@ -469,6 +558,8 @@ async def rag_practice_paper(payload: PracticePaperRequest):
             difficulty=payload.difficulty or "Medium"
         )
         return {"success": True, "data": result}
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"Error in RAG practice paper: {e}")
         raise HTTPException(
@@ -486,6 +577,8 @@ async def rag_viva(payload: VivaRequest):
             difficulty=payload.difficulty or "Medium"
         )
         return {"success": True, "data": result}
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"Error in RAG viva generation: {e}")
         raise HTTPException(
@@ -504,6 +597,8 @@ async def rag_evaluate(payload: EvaluateRequest):
             max_marks=payload.maxMarks or 5
         )
         return {"success": True, "data": result}
+    except RateLimitError:
+        raise
     except Exception as e:
         logger.error(f"Error in RAG answer evaluation: {e}")
         raise HTTPException(

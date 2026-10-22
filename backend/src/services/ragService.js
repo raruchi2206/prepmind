@@ -6,6 +6,7 @@ const Assessment = require("../models/Assessment");
 const Attempt = require("../models/Attempt");
 const Conversation = require("../models/Conversation");
 const aiServiceClient = require("./aiServiceClient");
+const { notifyGenerationComplete } = require("./notificationService");
 const { createHttpError } = require("../middleware/errorMiddleware");
 const { validateObjectId } = require("../utils/security");
 const {
@@ -41,6 +42,17 @@ async function verifyAndGetSources(userId, sourceIds, requireExplicit = true) {
     return [];
   }
 
+  const unavailable = sources.find((s) => ["CANCELLED", "AWAITING_REVIEW"].includes(s.status));
+  if (unavailable) {
+    throw createHttpError(
+      400,
+      unavailable.status === "AWAITING_REVIEW"
+        ? `"${unavailable.title}" is waiting for your review on the Knowledge page before it can be used.`
+        : `Processing of "${unavailable.title}" was cancelled. Retry it from the Knowledge page.`,
+      "SOURCE_NOT_READY",
+    );
+  }
+
   const failedSource = sources.find((s) => s.status === "FAILED");
   if (failedSource) {
     throw createHttpError(
@@ -59,6 +71,36 @@ async function verifyAndGetSources(userId, sourceIds, requireExplicit = true) {
   }
 
   return sources;
+}
+
+// Whole-source outputs need every chunk in document order, not just the top search hits
+const MAX_DOCUMENT_CHUNKS = parseInt(process.env.MAX_DOCUMENT_CHUNKS || "2000", 10);
+
+async function loadAllSourceChunks(userId, sources) {
+  const sourceTitleMap = new Map(sources.map((s) => [s._id.toString(), s.title]));
+  const chunks = await KnowledgeChunk.find({
+    userId,
+    knowledgeSourceId: { $in: sources.map((s) => s._id) },
+  })
+    .sort({ knowledgeSourceId: 1, chunkIndex: 1 })
+    .limit(MAX_DOCUMENT_CHUNKS);
+
+  if (chunks.length === 0) {
+    throw createHttpError(
+      400,
+      "This source has no indexed content. Open the Knowledge page and reprocess it, then try again.",
+      "SOURCE_HAS_NO_CHUNKS",
+    );
+  }
+
+  return chunks.map((mc) => ({
+    chunkId: mc._id.toString(),
+    knowledgeSourceId: mc.knowledgeSourceId.toString(),
+    sourceTitle: sourceTitleMap.get(mc.knowledgeSourceId.toString()) || "Knowledge Source",
+    chunkIndex: mc.chunkIndex,
+    text: mc.text,
+    metadata: mc.metadata,
+  }));
 }
 
 async function retrieveRelevantChunks({
@@ -311,20 +353,7 @@ async function generateSummary({
     }
   }
 
-  const { chunks } = await retrieveRelevantChunks({
-    userId,
-    query: `Provide a full comprehensive overview and summary of ${sourceTitle}`,
-    knowledgeSourceIds,
-    topK: 10,
-  });
-
-  if (!chunks || chunks.length === 0) {
-    throw createHttpError(
-      400,
-      "I couldn't find enough information in this document to generate this content.",
-    );
-  }
-
+  const chunks = await loadAllSourceChunks(userId, sources);
   const aiResult = await aiServiceClient.generateSummary(chunks, sourceTitle);
 
   const doc = await GeneratedContent.create({
@@ -340,8 +369,17 @@ async function generateSummary({
     },
   });
 
+  notifyGenerationComplete(userId, {
+    kind: doc.type,
+    sourceTitle,
+    sourceId: sourceIds[0]?.toString(),
+    resourceType: "GENERATED_CONTENT",
+    resourceId: doc._id,
+  });
+
   return {
     ...doc.toSafeObject(),
+    coverage: aiResult.coverage || null,
     generationTimeSeconds: doc.metadata.generationTimeSeconds,
   };
 }
@@ -373,20 +411,7 @@ async function generateNotes({
     }
   }
 
-  const { chunks } = await retrieveRelevantChunks({
-    userId,
-    query: `Detailed academic study notes and key concepts of ${sourceTitle}`,
-    knowledgeSourceIds,
-    topK: 12,
-  });
-
-  if (!chunks || chunks.length === 0) {
-    throw createHttpError(
-      400,
-      "I couldn't find enough information in this document to generate this content.",
-    );
-  }
-
+  const chunks = await loadAllSourceChunks(userId, sources);
   const aiResult = await aiServiceClient.generateNotes(chunks, sourceTitle);
 
   const doc = await GeneratedContent.create({
@@ -402,8 +427,17 @@ async function generateNotes({
     },
   });
 
+  notifyGenerationComplete(userId, {
+    kind: doc.type,
+    sourceTitle,
+    sourceId: sourceIds[0]?.toString(),
+    resourceType: "GENERATED_CONTENT",
+    resourceId: doc._id,
+  });
+
   return {
     ...doc.toSafeObject(),
+    coverage: aiResult.coverage || null,
     generationTimeSeconds: doc.metadata.generationTimeSeconds,
   };
 }
@@ -569,6 +603,13 @@ async function generateQuiz({
 
   assessment.generationTimeSeconds = secondsSince(startedAt);
   await assessment.save();
+  notifyGenerationComplete(userId, {
+    kind: "QUIZ",
+    sourceTitle,
+    sourceId: sourceIds[0]?.toString(),
+    resourceType: "ASSESSMENT",
+    resourceId: assessment._id,
+  });
   return assessment.toSafeObject();
 }
 
@@ -673,13 +714,24 @@ async function generatePracticePaper({
     };
   });
 
+  const paperQuestions = sanitizedSections.flatMap((sec) => sec.questions || []);
+  if (paperQuestions.length === 0) {
+    throw createHttpError(
+      502,
+      "The AI model did not return any usable questions for this paper. Please try again.",
+      "PAPER_GENERATION_EMPTY",
+    );
+  }
+  // The stated total is always the sum of the individual question marks
+  const computedTotalMarks = paperQuestions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
+
   const assessment = await Assessment.create({
     userId,
     knowledgeSourceIds: sourceIds,
     title: aiResult.title || `Practice Paper: ${sourceTitle}`,
     type: "PRACTICE_PAPER",
     difficulty,
-    totalMarks: aiResult.totalMarks || totalMarks,
+    totalMarks: computedTotalMarks,
     timeAllowedMinutes: aiResult.timeAllowedMinutes || 90,
     sections: sanitizedSections,
     sources: aiResult.sources || [],
@@ -697,6 +749,14 @@ async function generatePracticePaper({
       totalMarks: assessment.totalMarks,
       difficulty,
     },
+  });
+
+  notifyGenerationComplete(userId, {
+    kind: "PRACTICE_PAPER",
+    sourceTitle,
+    sourceId: sourceIds[0]?.toString(),
+    resourceType: "ASSESSMENT",
+    resourceId: assessment._id,
   });
 
   const safeObj = assessment.toSafeObject();
@@ -798,6 +858,13 @@ async function generateViva({
     },
   });
 
+  notifyGenerationComplete(userId, {
+    kind: "VIVA",
+    sourceTitle,
+    sourceId: sourceIds[0]?.toString(),
+    resourceType: "ASSESSMENT",
+    resourceId: assessment._id,
+  });
   return assessment.toSafeObject();
 }
 

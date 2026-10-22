@@ -2,32 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { KnowledgeSignal } from "../components/KnowledgeSignal";
 import { useAuth } from "../context/AuthContext";
-import { knowledgeApi } from "../services/api";
-
-const recentActivity = [
-  {
-    title: "DBMS Quiz",
-    type: "QUIZ",
-    score: 84,
-    time: "Today",
-    path: "/history",
-  },
-  {
-    title: "Normalization Notes",
-    type: "NOTES",
-    score: null,
-    time: "Yesterday",
-    sub: "Generated PDF",
-    path: "/history",
-  },
-  {
-    title: "DBMS Viva",
-    type: "VIVA",
-    score: 82,
-    time: "2 days ago",
-    path: "/history",
-  },
-];
+import { knowledgeApi, progressApi } from "../services/api";
 
 const capabilities = [
   {
@@ -68,12 +43,29 @@ const capabilities = [
   },
 ];
 
-const progress = [
-  { label: "Normalization", value: 82 },
-  { label: "Transactions", value: 64 },
-  { label: "Indexes", value: 78 },
-  { label: "SQL", value: 71 },
-];
+const activityLabels = {
+  QUIZ: "Quiz",
+  PRACTICE_PAPER: "Practice paper",
+  VIVA: "Viva",
+  SUMMARY: "Summary",
+  NOTES: "Notes",
+};
+
+const activityPaths = {
+  SUMMARY: "/summary",
+  NOTES: "/notes",
+  QUIZ: "/quiz",
+  PRACTICE_PAPER: "/practice-paper",
+  VIVA: "/viva",
+};
+
+function relativeDay(date) {
+  const days = Math.floor((Date.now() - new Date(date).getTime()) / 86400000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+  return new Date(date).toLocaleDateString();
+}
 
 export default function Dashboard({ theme }) {
   const { user } = useAuth();
@@ -84,6 +76,8 @@ export default function Dashboard({ theme }) {
 
   const [knowledgeList, setKnowledgeList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [progressData, setProgressData] = useState(null);
+  const [progressLoading, setProgressLoading] = useState(true);
 
   useEffect(() => {
     async function loadKnowledge() {
@@ -97,7 +91,38 @@ export default function Dashboard({ theme }) {
       }
     }
     loadKnowledge();
+    progressApi
+      .get()
+      .then((res) => setProgressData(res?.data || null))
+      .catch(() => setProgressData(null))
+      .finally(() => setProgressLoading(false));
   }, []);
+
+  // Recent attempts and generated material, newest first
+  const recentActivity = progressData
+    ? [
+        ...progressData.recentAttempts.map((a) => ({
+          key: `a-${a.id}`,
+          title: a.title,
+          type: a.type,
+          date: a.date,
+          score: a.percentage,
+          path: "/history",
+        })),
+        ...progressData.recentGenerated.map((g) => ({
+          key: `g-${g.id}`,
+          title: g.title,
+          type: g.type,
+          date: g.date,
+          score: null,
+          path: g.sourceId && activityPaths[g.type] ? `${activityPaths[g.type]}?knowledge=${g.sourceId}` : "/history",
+        })),
+      ]
+        .sort((x, y) => new Date(y.date) - new Date(x.date))
+        .slice(0, 4)
+    : [];
+  const sourcePerformance = progressData?.topicPerformance?.slice(0, 4) || [];
+  const totals = progressData?.totals;
 
   const totalChunks = knowledgeList.reduce(
     (acc, k) => acc + (k.metadata?.chunkCount || 0),
@@ -165,7 +190,13 @@ export default function Dashboard({ theme }) {
             <div className="min-w-0">
               <p className="section-label">PrepMind recommendation</p>
               <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                Keep your revision sharp with targeted quizzes and viva drills.
+                {!totals || totals.sourcesReady === 0
+                  ? "Add a document or YouTube video to start preparing."
+                  : totals.attempts === 0
+                    ? "You haven't taken a quiz yet. Test yourself on your knowledge."
+                    : sourcePerformance.length > 0 && sourcePerformance[sourcePerformance.length - 1].averagePercentage < 60
+                      ? `Your lowest average is ${sourcePerformance[sourcePerformance.length - 1].averagePercentage}% on "${sourcePerformance[sourcePerformance.length - 1].title}". Revise it with a quiz.`
+                      : `Your quiz accuracy is ${totals.accuracy ?? totals.averageScore ?? 0}%. Keep it up with another quiz.`}
               </p>
             </div>
           </div>
@@ -258,9 +289,21 @@ export default function Dashboard({ theme }) {
               </div>
 
               <div className="space-y-3">
-                {recentActivity.map((item) => (
+                {progressLoading ? (
+                  <p className="py-6 text-center text-xs text-[var(--text-secondary)]">Loading recent activity...</p>
+                ) : recentActivity.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface-elevated)] p-6 text-center">
+                    <p className="text-sm font-medium text-[var(--text-primary)]">No study activity yet</p>
+                    <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                      Generated summaries, notes, quizzes and your attempts will show up here.
+                    </p>
+                    <Link to="/create" className="btn btn-primary btn-sm mt-4 inline-flex">
+                      Create →
+                    </Link>
+                  </div>
+                ) : recentActivity.map((item) => (
                   <Link
-                    key={item.title}
+                    key={item.key}
                     to={item.path}
                     className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-3.5 transition-colors hover:bg-[var(--surface-muted)]"
                   >
@@ -269,17 +312,17 @@ export default function Dashboard({ theme }) {
                         {item.title}
                       </p>
                       <p className="mt-1 font-mono text-[0.56rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
-                        {item.type} · {item.time}
+                        {activityLabels[item.type] || item.type} · {relativeDay(item.date)}
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
-                      {item.score ? (
+                      {item.score != null ? (
                         <span className="font-display text-xl text-[var(--text-primary)]">
                           {item.score}%
                         </span>
                       ) : (
                         <span className="font-mono text-[0.56rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
-                          PDF
+                          Open
                         </span>
                       )}
                       <span className="text-base text-[var(--text-secondary)]">
@@ -296,24 +339,44 @@ export default function Dashboard({ theme }) {
             <section className="panel p-4 sm:p-5">
               <p className="section-label">Your progress</p>
               <div className="mt-4 space-y-4">
-                {progress.map((item) => (
-                  <div key={item.label}>
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <span className="text-sm text-[var(--text-primary)]">
-                        {item.label}
-                      </span>
-                      <span className="font-mono text-[0.56rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
-                        {item.value}%
-                      </span>
+                {totals && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="font-display text-2xl text-[var(--text-primary)]">
+                        {totals.accuracy == null ? "—" : `${totals.accuracy}%`}
+                      </p>
+                      <p className="font-mono text-[0.56rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">Quiz accuracy</p>
                     </div>
-                    <div className="h-2 rounded-full bg-[var(--surface-muted)]">
-                      <div
-                        className="h-full rounded-full bg-[var(--accent)]"
-                        style={{ width: `${item.value}%` }}
-                      />
+                    <div>
+                      <p className="font-display text-2xl text-[var(--text-primary)]">{totals.attempts}</p>
+                      <p className="font-mono text-[0.56rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">Attempts</p>
                     </div>
                   </div>
-                ))}
+                )}
+                {progressLoading ? (
+                  <p className="text-xs text-[var(--text-secondary)]">Loading progress...</p>
+                ) : sourcePerformance.length === 0 ? (
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Average scores per source appear after your first quiz or practice paper attempt.
+                  </p>
+                ) : (
+                  sourcePerformance.map((item) => (
+                    <div key={item.sourceId}>
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <span className="truncate text-sm text-[var(--text-primary)]">{item.title}</span>
+                        <span className="shrink-0 font-mono text-[0.56rem] uppercase tracking-[0.12em] text-[var(--text-secondary)]">
+                          {item.averagePercentage}% · {item.attempts}×
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-[var(--surface-muted)]">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${Math.max(2, item.averagePercentage)}%`, background: "var(--series-1)" }}
+                        />
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
               <Link to="/progress" className="btn btn-secondary mt-5 w-full">
                 View progress

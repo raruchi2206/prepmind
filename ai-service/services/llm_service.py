@@ -1,4 +1,5 @@
 import asyncio
+import re
 import logging
 from typing import Any, Dict, List, Optional
 import httpx
@@ -8,6 +9,27 @@ logger = logging.getLogger("llm_service")
 
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+# Free-tier Groq limits tokens per minute, so rate-limit waits can be long
+MAX_RATE_LIMIT_WAIT_SECONDS = 65.0
+RATE_LIMIT_RETRIES = 6
+
+
+class RateLimitError(RuntimeError):
+    """Groq kept returning 429 after waiting as instructed."""
+
+
+def rate_limit_wait_seconds(response) -> float:
+    header = response.headers.get("retry-after")
+    try:
+        if header:
+            return float(header)
+    except ValueError:
+        pass
+    # Groq also states the wait in the error message, e.g. "Please try again in 27.17s"
+    match = re.search(r"try again in (?:(\d+)m)?([\d.]+)s", response.text or "")
+    if match:
+        return int(match.group(1) or 0) * 60 + float(match.group(2))
+    return 10.0
 
 
 class LLMService:
@@ -105,8 +127,11 @@ class LLMService:
 
         headers = {"Authorization": f"Bearer {settings.GROQ_API_KEY}"}
         last_error = ""
+        rate_limited = 0
+        attempt = 0
         async with httpx.AsyncClient(timeout=settings.GROQ_TIMEOUT_SECONDS) as client:
-            for attempt in range(1, settings.GROQ_MAX_RETRIES + 2):
+            while attempt <= settings.GROQ_MAX_RETRIES:
+                attempt += 1
                 try:
                     res = await client.post(GROQ_CHAT_URL, json=payload, headers=headers)
                 except httpx.HTTPError as e:
@@ -124,16 +149,27 @@ class LLMService:
                             )
                         return ((choice.get("message") or {}).get("content") or "").strip()
                     last_error = f"status {res.status_code}: {res.text[:300]}"
+                    if res.status_code == 429:
+                        # Rate limits get their own retry budget and wait exactly as long as Groq asks
+                        rate_limited += 1
+                        if rate_limited > RATE_LIMIT_RETRIES:
+                            break
+                        wait = min(rate_limit_wait_seconds(res) + 0.5, MAX_RATE_LIMIT_WAIT_SECONDS)
+                        logger.info(f"[LLM] Groq rate limit; waiting {wait:.1f}s (retry {rate_limited}/{RATE_LIMIT_RETRIES})")
+                        await asyncio.sleep(wait)
+                        attempt -= 1
+                        continue
                     if res.status_code not in RETRYABLE_STATUS:
                         break
-                    retry_after = res.headers.get("retry-after")
-                    if retry_after and retry_after.replace(".", "", 1).isdigit():
-                        await asyncio.sleep(min(float(retry_after), 20.0))
-                        continue
                 if attempt <= settings.GROQ_MAX_RETRIES:
                     await asyncio.sleep(min(2 ** attempt, 10))
 
         logger.error(f"[LLM] Groq request failed: {last_error}")
+        if rate_limited > RATE_LIMIT_RETRIES:
+            raise RateLimitError(
+                "The Groq API rate limit was reached (the free tier allows a limited number of tokens per minute). "
+                "Please wait a minute and try again."
+            )
         raise RuntimeError(f"Groq request failed ({last_error})")
 
     async def _generate_ollama(self, prompt, system, want_json, temperature, max_tokens, debug_label, seed) -> str:

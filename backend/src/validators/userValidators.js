@@ -11,6 +11,9 @@ const updateProfileSchema = z.object({
     .max(32)
     .optional(),
   avatar: z.string().trim().max(500).optional(),
+  email: z.string().trim().toLowerCase().email("Enter a valid email address").max(254).optional(),
+  // Required only when changing the email address
+  currentPassword: z.string().min(1).max(200).optional(),
 });
 
 module.exports = { updateProfileSchema };

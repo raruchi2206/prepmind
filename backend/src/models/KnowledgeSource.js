@@ -51,15 +51,35 @@ const knowledgeSourceSchema = new mongoose.Schema(
       type: String,
       enum: [
         "UPLOADING",
+        "QUEUED",
         "EXTRACTING_CONTENT",
+        "CLASSIFYING",
         "CLEANING_CONTENT",
         "CHUNKING",
         "EMBEDDING",
         "BUILDING_KNOWLEDGE",
+        "AWAITING_REVIEW",
         "READY",
         "FAILED",
+        "CANCELLED",
       ],
       default: "UPLOADING",
+    },
+    // Educational-relevance check for YouTube sources, with the user's decision
+    classification: {
+      label: { type: String, enum: ["EDUCATIONAL", "NON_EDUCATIONAL", "UNCERTAIN", null], default: null },
+      confidence: { type: Number, default: null },
+      topic: { type: String, default: null },
+      reason: { type: String, default: null },
+      evidence: { type: [String], default: undefined },
+      method: { type: String, default: null },
+      classifiedAt: { type: Date, default: null },
+      decision: { type: String, enum: ["AUTO_APPROVED", "APPROVED", "REJECTED", null], default: null },
+      decidedAt: { type: Date, default: null },
+    },
+    processingJobId: {
+      type: String,
+      default: null,
     },
     errorMessage: {
       type: String,
@@ -110,6 +130,17 @@ knowledgeSourceSchema.methods.toSafeObject = function toSafeObject() {
           }
         : null,
     status: this.status,
+    classification: this.classification?.label
+      ? {
+          label: this.classification.label,
+          confidence: this.classification.confidence,
+          topic: this.classification.topic,
+          reason: this.classification.reason,
+          evidence: this.classification.evidence || [],
+          decision: this.classification.decision,
+          classifiedAt: this.classification.classifiedAt,
+        }
+      : null,
     errorMessage: this.errorMessage,
     metadata: this.metadata,
     createdAt: this.createdAt,

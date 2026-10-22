@@ -1,3 +1,4 @@
+import asyncio
 import difflib
 import hashlib
 import json
@@ -774,7 +775,98 @@ def clean_academic_notes(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return text
 
+# Whole-document outputs (summary, notes) cover every chunk. Sources that fit in one
+# request are sent directly; longer ones are condensed section by section first.
+SINGLE_PASS_CHAR_BUDGET = int(os.getenv("SINGLE_PASS_CHAR_BUDGET", "24000"))
+SECTION_CHAR_BUDGET = int(os.getenv("SECTION_CHAR_BUDGET", "12000"))
+# Sequential by default: the Groq free tier allows ~8k tokens/minute
+SECTION_CONCURRENCY = int(os.getenv("SECTION_CONCURRENCY", "1"))
+MIN_OUTPUT_CHARS = 200
+
+SECTION_DIGEST_PROMPT = """SOURCE: {title}
+PART {index} OF {total}
+
+CONTENT:
+{context}
+{timestamp_note}
+
+TASK:
+Write dense study notes for this part only, as plain bullet points starting with "- ".
+Capture every main concept, definition, fact, formula, example and conclusion stated in the content.
+Keep the source tags (page, slide or time range) next to the points they support, e.g. (Page 3) or [04:12].
+Do not add anything that is not in the content. Do not write an introduction or a conclusion."""
+
+
+def order_chunks(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return sorted(chunks, key=lambda c: (str(c.get("knowledgeSourceId") or ""), c.get("chunkIndex") or 0))
+
+
+def split_into_sections(chunks: List[Dict[str, Any]], budget: int) -> List[List[Dict[str, Any]]]:
+    sections, current, size = [], [], 0
+    for chunk in chunks:
+        length = len(chunk.get("text") or "") + 80
+        if current and size + length > budget:
+            sections.append(current)
+            current, size = [], 0
+        current.append(chunk)
+        size += length
+    if current:
+        sections.append(current)
+    return sections
+
+
+def validate_document_output(text: str, kind: str) -> str:
+    cleaned = (text or "").strip()
+    if len(cleaned) < MIN_OUTPUT_CHARS:
+        raise ValueError(f"The AI model returned an empty or incomplete {kind}. Please try again.")
+    return cleaned
+
+
 class RAGService:
+    async def build_document_context(self, chunks: List[Dict[str, Any]], title: str) -> Dict[str, Any]:
+        """Returns the context for a whole-source output, condensing long sources first."""
+        ordered = order_chunks(chunks)
+        full_context = format_context_chunks(ordered, max_chunks=len(ordered), max_chars_per_chunk=100000)
+        if len(full_context) <= SINGLE_PASS_CHAR_BUDGET:
+            return {"context": full_context, "condensed": False, "sections": 1}
+
+        timestamp_note = TIMESTAMP_INSTRUCTION if chunks_have_timestamps(ordered) else ""
+        sections = split_into_sections(ordered, SECTION_CHAR_BUDGET)
+        logger.info(f"[RAG] Long source: condensing {len(ordered)} chunks in {len(sections)} sections")
+        semaphore = asyncio.Semaphore(SECTION_CONCURRENCY)
+
+        async def digest(index: int, section: List[Dict[str, Any]]) -> str:
+            section_context = format_context_chunks(section, max_chunks=len(section), max_chars_per_chunk=100000)
+            prompt = SECTION_DIGEST_PROMPT.format(
+                title=title,
+                index=index,
+                total=len(sections),
+                context=section_context,
+                timestamp_note=timestamp_note,
+            )
+            async with semaphore:
+                text = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.1, max_tokens=900)
+            return f"--- PART {index} OF {len(sections)} ---\n{text.strip()}"
+
+        digests = await asyncio.gather(*(digest(i, sec) for i, sec in enumerate(sections, 1)))
+        combined = "\n\n".join(digests)
+
+        # Very long sources: condense the digests again until they fit in one request
+        while len(combined) > SINGLE_PASS_CHAR_BUDGET:
+            pseudo_chunks = [
+                {"text": d, "chunkIndex": i, "sourceTitle": title, "metadata": {}}
+                for i, d in enumerate(digests)
+            ]
+            groups = split_into_sections(pseudo_chunks, SECTION_CHAR_BUDGET)
+            if len(groups) >= len(digests):
+                break
+            digests = await asyncio.gather(*(
+                digest(i, group) for i, group in enumerate(groups, 1)
+            ))
+            combined = "\n\n".join(digests)
+
+        return {"context": combined, "condensed": True, "sections": len(sections)}
+
     async def ask(
         self,
         query: str,
@@ -831,12 +923,9 @@ Provide a well-structured, comprehensive, and grounded answer to the user's ques
     ) -> Dict[str, Any]:
         logger.info(f"[RAG] Generating summary with {len(chunks)} chunks")
         if not chunks:
-            return {
-                "title": f"Summary: {title}",
-                "content": "No content available in selected knowledge source.",
-                "sources": []
-            }
-        context_str = format_context_chunks(chunks)
+            raise ValueError("The selected source has no indexed content to summarize.")
+        document = await self.build_document_context(chunks, title)
+        context_str = document["context"]
         timestamp_note = TIMESTAMP_INSTRUCTION if chunks_have_timestamps(chunks) else ""
         sources = extract_sources_from_chunks(chunks)
 
@@ -889,25 +978,29 @@ Create a clear, concise, and structured academic study summary based EXCLUSIVELY
 1. Overview
 [Concise executive overview of the subject matter]
 
-2. Key Takeaways
-[Clear bullet points covering primary insights]
+2. Main Concepts and Important Points
+[Bullet points ("- ") covering the primary ideas, in the order the source presents them]
 
-3. Important Concepts and Definitions
-[Breakdown of core principles and terminology]
+3. Key Terms and Definitions
+[Bullet points ("- Term: definition") for terms the source defines. Omit the section if there are none.]
 
-4. Quick Revision and Exam Focus
-[Key points and high-yield rules to remember]
+4. Important Examples
+[Examples, cases or worked problems from the source. Omit the section if there are none.]
+
+5. Conclusions and Quick Revision
+[High-yield points to remember for revision and exams]
 
 Ensure every point is directly supported by the context."""
 
         logger.info(f"[GROQ] Generation started | Model: {llm_service.model}")
-        raw_summary = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.2)
-        summary_text = clean_academic_notes(raw_summary)
+        raw_summary = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.2, max_tokens=2500)
+        summary_text = validate_document_output(clean_academic_notes(raw_summary), "summary")
         logger.info("[GROQ] Generation completed")
         return {
             "title": f"Summary: {title}",
             "content": summary_text,
-            "sources": sources
+            "sources": sources,
+            "coverage": {"chunks": len(chunks), "sections": document["sections"], "condensed": document["condensed"]},
         }
 
     async def generate_notes(
@@ -917,12 +1010,9 @@ Ensure every point is directly supported by the context."""
     ) -> Dict[str, Any]:
         logger.info(f"[RAG] Generating academic notes with {len(chunks)} chunks")
         if not chunks:
-            return {
-                "title": f"Notes: {title}",
-                "content": "No content available in selected knowledge source.",
-                "sources": []
-            }
-        context_str = format_context_chunks(chunks)
+            raise ValueError("The selected source has no indexed content to build notes from.")
+        document = await self.build_document_context(chunks, title)
+        context_str = document["context"]
         timestamp_note = TIMESTAMP_INSTRUCTION if chunks_have_timestamps(chunks) else ""
         sources = extract_sources_from_chunks(chunks)
 
@@ -1001,8 +1091,8 @@ REQUIRED STRUCTURE:
 3. Definitions and Terminology
 [Key terms and concise definition paragraphs]
 
-4. Detailed Explanations and Key Mechanisms
-[Step-by-step breakdown of algorithms, processes, or examples present in the text]
+4. Detailed Explanations, Formulas and Examples
+[Step-by-step breakdown of processes, any formulas exactly as written, and examples present in the text]
 
 5. Critical Points and Best Practices
 [Key nuances, edge cases, and comparison points]
@@ -1013,13 +1103,14 @@ REQUIRED STRUCTURE:
 Maintain absolute fidelity to the source context."""
 
         logger.info(f"[GROQ] Generation started | Model: {llm_service.model}")
-        raw_notes = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.2)
-        notes_text = clean_academic_notes(raw_notes)
+        raw_notes = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.2, max_tokens=4000)
+        notes_text = validate_document_output(clean_academic_notes(raw_notes), "notes")
         logger.info("[GROQ] Generation completed")
         return {
             "title": f"Notes: {title}",
             "content": notes_text,
-            "sources": sources
+            "sources": sources,
+            "coverage": {"chunks": len(chunks), "sections": document["sections"], "condensed": document["condensed"]},
         }
 
     async def generate_quiz(

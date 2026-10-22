@@ -8,6 +8,7 @@ import {
 } from "react-router-dom";
 import { Navigation } from "./components/Navigation";
 import { Footer } from "./components/Footer";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "./context/AuthContext";
 import Landing from "./pages/Landing";
@@ -63,6 +64,7 @@ function AppShell({ theme, onThemeToggle, onSetTheme }) {
           onSetTheme={onSetTheme}
         />
       )}
+      <ErrorBoundary resetKey={location.pathname}>
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login theme={theme} />} />
@@ -113,6 +115,7 @@ function AppShell({ theme, onThemeToggle, onSetTheme }) {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </ErrorBoundary>
       {showNav && <Footer theme={theme} />}
     </div>
   );

@@ -13,6 +13,7 @@ const ragRoutes = require("./routes/ragRoutes");
 const aiRoutes = require("./routes/aiRoutes");
 const historyRoutes = require("./routes/historyRoutes");
 const progressRoutes = require("./routes/progressRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 const {
   notFoundHandler,
   errorHandler,
@@ -85,6 +86,7 @@ app.use("/api/rag", ragRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/history", historyRoutes);
 app.use("/api/progress", progressRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

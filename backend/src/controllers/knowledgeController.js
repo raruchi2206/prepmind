@@ -141,6 +141,42 @@ async function processKnowledgeSource(request, response, next) {
   }
 }
 
+async function cancelKnowledgeProcessing(request, response, next) {
+  try {
+    const result = await knowledgeIngestionService.cancelProcessing(
+      request.params.id,
+      request.user._id,
+    );
+    response.json({
+      success: true,
+      message: "Processing cancelled",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function reviewKnowledgeSource(request, response, next) {
+  try {
+    const result = await knowledgeIngestionService.reviewSource(
+      request.params.id,
+      request.user._id,
+      request.body?.decision,
+    );
+    response.json({
+      success: true,
+      message:
+        request.body?.decision === "approve"
+          ? "Source approved and processed"
+          : "Import cancelled",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getKnowledgeChunks(request, response, next) {
   try {
     const chunks = await knowledgeIngestionService.getKnowledgeChunks(
@@ -194,6 +230,8 @@ module.exports = {
   updateKnowledgeSource,
   deleteKnowledgeSource,
   processKnowledgeSource,
+  cancelKnowledgeProcessing,
+  reviewKnowledgeSource,
   getKnowledgeChunks,
   reindexKnowledgeSource,
   reindexAllSources,

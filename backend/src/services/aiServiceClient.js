@@ -76,16 +76,18 @@ class AIServiceClient {
     return await res.json();
   }
 
-  async fetchYouTubeTranscript(videoId, languages = []) {
+  async fetchYouTubeTranscript(videoId, languages = [], { signal } = {}) {
     let res;
     try {
+      const timeout = AbortSignal.timeout(TRANSCRIPT_TIMEOUT_MS);
       res = await fetch(`${this.baseUrl}/youtube/transcript`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ videoId, languages }),
-        signal: AbortSignal.timeout(TRANSCRIPT_TIMEOUT_MS),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
     } catch (error) {
+      if (signal && signal.aborted) throw error;
       const reason =
         error && error.name === "TimeoutError"
           ? "Transcript provider timed out. Please try again."
@@ -158,8 +160,9 @@ class AIServiceClient {
     }
   }
 
-  async indexChunks(userId, knowledgeSourceId, chunks) {
+  async indexChunks(userId, knowledgeSourceId, chunks, { jobId = null, signal } = {}) {
     const payload = {
+      jobId,
       userId: userId.toString(),
       knowledgeSourceId: knowledgeSourceId.toString(),
       chunks: chunks.map((c) => ({
@@ -174,14 +177,75 @@ class AIServiceClient {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal,
     });
 
     if (!res.ok) {
       const errText = await res.text();
+      if (res.status === 409 && errText.includes("CANCELLED")) {
+        throw createHttpError(409, "Indexing was cancelled.", "PROCESSING_CANCELLED");
+      }
       throw new Error(`AI Service /index failed (${res.status}): ${errText}`);
     }
 
     return await res.json();
+  }
+
+  // Asks the AI service to stop a running index job at its next batch boundary
+  async cancelJob(jobId) {
+    try {
+      const res = await fetch(`${this.baseUrl}/jobs/${encodeURIComponent(jobId)}/cancel`, {
+        method: "POST",
+        signal: AbortSignal.timeout(5000),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async classifyEducationalContent({ title, text, wordCount }, { signal } = {}) {
+    const timeout = AbortSignal.timeout(60000);
+    const res = await fetch(`${this.baseUrl}/classify/educational`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, text: text.slice(0, 60000), wordCount }),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    if (!res.ok) {
+      throw new Error(`Content classification failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    }
+    return (await res.json()).data;
+  }
+
+  // Maps AI service failures to HTTP errors the frontend can show directly
+  async postGeneration(path, body, label) {
+    let res;
+    try {
+      res = await fetch(`${this.baseUrl}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        dispatcher: this.quizDispatcher,
+      });
+    } catch (error) {
+      throw createHttpError(503, this.formatConnectionError(error, "AI generation service"), "AI_SERVICE_UNAVAILABLE");
+    }
+    if (!res.ok) {
+      let detail = await res.text();
+      try {
+        const parsed = JSON.parse(detail).detail;
+        detail = typeof parsed === "string" ? parsed : parsed?.message || detail;
+      } catch {}
+      if (res.status === 422) {
+        throw createHttpError(422, detail, "GENERATION_INVALID_OUTPUT");
+      }
+      if (res.status === 429) {
+        throw createHttpError(429, detail, "AI_RATE_LIMITED");
+      }
+      throw createHttpError(502, `${label} failed: ${String(detail).slice(0, 300)}`, "GENERATION_FAILED");
+    }
+    return (await res.json()).data;
   }
 
   async getUserStats(userId) {
@@ -266,39 +330,11 @@ class AIServiceClient {
   }
 
   async generateSummary(chunks, title) {
-    const res = await fetch(`${this.baseUrl}/rag/summary`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chunks, title }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(
-        `AI Service /rag/summary failed (${res.status}): ${errText}`,
-      );
-    }
-
-    const data = await res.json();
-    return data.data;
+    return this.postGeneration("/rag/summary", { chunks, title }, "Summary generation");
   }
 
   async generateNotes(chunks, title) {
-    const res = await fetch(`${this.baseUrl}/rag/notes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chunks, title }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(
-        `AI Service /rag/notes failed (${res.status}): ${errText}`,
-      );
-    }
-
-    const data = await res.json();
-    return data.data;
+    return this.postGeneration("/rag/notes", { chunks, title }, "Notes generation");
   }
 
   async generateQuiz(

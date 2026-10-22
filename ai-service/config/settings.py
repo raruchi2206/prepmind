@@ -18,7 +18,7 @@ class Settings:
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
     GROQ_REASONING_EFFORT: str = os.getenv("GROQ_REASONING_EFFORT", "low")
-    GROQ_REASONING_TOKEN_BUDGET: int = int(os.getenv("GROQ_REASONING_TOKEN_BUDGET", "1024"))
+    GROQ_REASONING_TOKEN_BUDGET: int = int(os.getenv("GROQ_REASONING_TOKEN_BUDGET", "512"))
     GROQ_TIMEOUT_SECONDS: float = float(os.getenv("GROQ_TIMEOUT_SECONDS", "120"))
     GROQ_MAX_RETRIES: int = int(os.getenv("GROQ_MAX_RETRIES", "3"))
     FAISS_BASE_PATH: Path = Path(os.getenv("FAISS_BASE_PATH", "./data/faiss")).resolve()

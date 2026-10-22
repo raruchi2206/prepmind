@@ -8,6 +8,8 @@ const {
   updateKnowledgeSource,
   deleteKnowledgeSource,
   processKnowledgeSource,
+  cancelKnowledgeProcessing,
+  reviewKnowledgeSource,
   getKnowledgeChunks,
   reindexKnowledgeSource,
   reindexAllSources,
@@ -56,6 +58,8 @@ router.patch(
 );
 router.delete("/:id", deleteKnowledgeSource);
 router.post("/:id/process", processLimiter, processKnowledgeSource);
+router.post("/:id/cancel", cancelKnowledgeProcessing);
+router.post("/:id/review", processLimiter, reviewKnowledgeSource);
 router.post("/:id/reindex", reindexKnowledgeSource);
 router.get("/:id/chunks", getKnowledgeChunks);
 

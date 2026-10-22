@@ -49,7 +49,7 @@ async function createYouTubeKnowledgeSource({ userId, url, title, language, repr
         { knowledgeSource: existing.toSafeObject() },
       );
     }
-    if (!["READY", "FAILED", "UPLOADING"].includes(existing.status)) {
+    if (!["READY", "FAILED", "UPLOADING", "CANCELLED", "AWAITING_REVIEW"].includes(existing.status)) {
       throw createHttpError(
         409,
         "This video is already being processed. Please wait for it to finish.",
@@ -156,6 +156,14 @@ async function updateKnowledgeSource({ id, userId, title }) {
 
 async function deleteKnowledgeSource({ id, userId }) {
   validateObjectId(id, "Knowledge source ID");
+
+  // Stop a running job first so it cannot write chunks or vectors after deletion
+  const runningJob = require("./processingJobs").getJob(id);
+  if (runningJob) {
+    await require("./knowledgeIngestionService")
+      .cancelProcessing(id, userId)
+      .catch((err) => console.warn(`[DELETE] Could not cancel job for ${id}: ${err.message}`));
+  }
   const source = await KnowledgeSource.findOneAndDelete({ _id: id, userId });
   if (!source) {
     throw createHttpError(404, "Knowledge source not found");

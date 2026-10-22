@@ -2,25 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { KnowledgeSignal } from "./KnowledgeSignal";
 import { useAuth } from "../context/AuthContext";
-
-function BellIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="16"
-      height="16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
-      <path d="M10 20a2 2 0 0 0 4 0" />
-    </svg>
-  );
-}
+import { NotificationBell } from "./NotificationBell";
 
 function SunIcon() {
   return (
@@ -184,7 +166,6 @@ export function Navigation({ theme, onThemeToggle }) {
   const location = useLocation();
   const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
   const light = theme === "light";
   const links = [
     { label: "Dashboard", path: "/dashboard" },
@@ -197,7 +178,6 @@ export function Navigation({ theme, onThemeToggle }) {
   // Close the sidebar whenever the route changes
   useEffect(() => {
     setMenuOpen(false);
-    setNotifOpen(false);
   }, [location.pathname]);
   const name = user?.name || "Profile";
   const initials = name
@@ -272,47 +252,7 @@ export function Navigation({ theme, onThemeToggle }) {
               </svg>
             )}
           </button>
-          <div className="relative hidden sm:block">
-            <button
-              type="button"
-              onClick={() => setNotifOpen((open) => !open)}
-              className="icon-button relative"
-              aria-label="Open notifications"
-            >
-              <BellIcon />
-              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[var(--primary)]" />
-            </button>
-            {notifOpen && (
-              <div
-                className="absolute right-0 top-12 w-72 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl"
-                style={{ boxShadow: "var(--shadow-soft)" }}
-              >
-                <p className="px-3 py-2 font-mono text-[0.6rem] uppercase tracking-[0.2em] text-[var(--text-secondary)]">
-                  Notifications
-                </p>
-                {[
-                  { label: "DBMS Quiz completed — 84%", time: "2m ago" },
-                  { label: "Notes exported as PDF", time: "1h ago" },
-                  {
-                    label: "New knowledge ready: OS Lecture",
-                    time: "Yesterday",
-                  },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="rounded-xl px-3 py-2.5 hover:bg-[var(--surface-elevated)]"
-                  >
-                    <p className="text-sm text-[var(--text-primary)]">
-                      {item.label}
-                    </p>
-                    <p className="mt-1 font-mono text-[0.6rem] text-[var(--text-secondary)]">
-                      {item.time}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <NotificationBell />
           <Link to="/create" className="nav-cta hidden sm:inline-flex">
             Create →
           </Link>

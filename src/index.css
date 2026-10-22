@@ -39,6 +39,9 @@
   --muted-foreground: rgba(225, 220, 201, 0.7);
   --accent: #e1dcc9;
   --accent-foreground: #1f150c;
+  /* Chart series (validated for CVD separation and 3:1 contrast on --surface) */
+  --series-1: #3987e5;
+  --series-2: #d95926;
   --accent-soft: rgba(225, 220, 201, 0.12);
   --border: rgba(225, 220, 201, 0.12);
   --ring: rgba(225, 220, 201, 0.28);
@@ -67,6 +70,8 @@
   --muted-foreground: rgba(23, 19, 15, 0.68);
   --accent: #412d15;
   --accent-foreground: #ffffff;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
   --accent-soft: rgba(65, 45, 21, 0.06);
   --border: #e7e2d8;
   --ring: rgba(65, 45, 21, 0.2);

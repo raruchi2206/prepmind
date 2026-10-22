@@ -63,8 +63,17 @@ async function me(request, response) {
 
 async function logout(request, response, next) {
   try {
-    if (request.user) {
-      await User.findByIdAndUpdate(request.user._id, {
+    // Revoke every session for this user, even if the access token has already expired
+    let userId = request.user?._id || null;
+    if (!userId && request.cookies?.[REFRESH_COOKIE]) {
+      try {
+        userId = verifyRefreshToken(request.cookies[REFRESH_COOKIE]).sub;
+      } catch {
+        userId = null;
+      }
+    }
+    if (userId) {
+      await User.findByIdAndUpdate(userId, {
         $inc: { tokenVersion: 1 },
       });
     }

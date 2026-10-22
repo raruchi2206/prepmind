@@ -49,7 +49,7 @@ function groupSegmentsIntoWindows(segments) {
 }
 
 // Accepts a KnowledgeSource document, or a YouTube URL/ID string
-async function extractYouTube(source, { languages } = {}) {
+async function extractYouTube(source, { languages, signal } = {}) {
   if (typeof source === "string") {
     source = { youtubeVideoId: extractYouTubeVideoId(source) || (/^[A-Za-z0-9_-]{11}$/.test(source) ? source : null) };
   }
@@ -59,7 +59,7 @@ async function extractYouTube(source, { languages } = {}) {
   }
 
   const preferred = languages || (source.youtube?.requestedLanguage ? [source.youtube.requestedLanguage] : []);
-  const transcript = await aiServiceClient.fetchYouTubeTranscript(videoId, preferred);
+  const transcript = await aiServiceClient.fetchYouTubeTranscript(videoId, preferred, { signal });
 
   const segments = (transcript.segments || [])
     .filter((s) => s && typeof s.text === "string" && s.text.trim())

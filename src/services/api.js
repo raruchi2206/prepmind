@@ -168,6 +168,15 @@ export const knowledgeApi = {
       method: "POST",
     }),
   getChunks: (id) => apiRequest(`/knowledge/${id}/chunks`),
+  cancel: (id) =>
+    apiRequest(`/knowledge/${id}/cancel`, {
+      method: "POST",
+    }),
+  review: (id, decision) =>
+    apiRequest(`/knowledge/${id}/review`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    }),
 };
 
 export const ragApi = {
@@ -229,6 +238,25 @@ export const historyApi = {
 };
 
 export const progressApi = {
-  get: () => apiRequest("/progress"),
+  get: () => {
+    let tz = "UTC";
+    try {
+      tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    } catch {}
+    return apiRequest(`/progress?tz=${encodeURIComponent(tz)}`);
+  },
 };
 
+
+export const notificationsApi = {
+  list: (limit = 20) => apiRequest(`/notifications?limit=${limit}`),
+  unreadCount: () => apiRequest("/notifications/unread-count"),
+  markRead: (id) =>
+    apiRequest(`/notifications/${id}/read`, {
+      method: "PATCH",
+    }),
+  markAllRead: () =>
+    apiRequest("/notifications/read-all", {
+      method: "POST",
+    }),
+};
