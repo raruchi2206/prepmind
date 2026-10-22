@@ -51,13 +51,11 @@ describe("PREPMIND HYBRID AI & YOUTUBE INGESTION TEST SUITE", () => {
     } catch {}
   });
 
-  test("1. Hybrid AI Health Check reports Groq primary and Ollama fallback", async () => {
+  test("1. AI Health Check reports Groq generation and local 384-dim embeddings", async () => {
     const health = await aiServiceClient.checkHealth();
     assert.equal(health.available, true, "AI service must report available");
     assert.equal(health.primaryProvider, "groq");
-    assert.equal(health.fallbackProvider, "ollama");
     assert.ok(health.groq.available, "Groq must be available");
-    assert.ok(health.ollama.available, "Ollama must be available");
     assert.equal(health.embedding.dimension, 384, "Embedding dimension must be 384");
   });
 
@@ -68,10 +66,10 @@ describe("PREPMIND HYBRID AI & YOUTUBE INGESTION TEST SUITE", () => {
     assert.ok(extracted.metadata.wordCount > 500, "Must have substantial word count");
 
     const first = extracted.items[0];
-    assert.ok(first.timestamp, "Chunk item must have formatted timestamp");
-    assert.equal(typeof first.startSeconds, "number", "startSeconds must be a number");
-    assert.equal(typeof first.endSeconds, "number", "endSeconds must be a number");
-    assert.ok(first.videoUrl.includes("watch?v="), "videoUrl must be valid YouTube link");
+    assert.ok(first.section, "Chunk item must have a formatted time range");
+    assert.equal(typeof first.startTime, "number", "startTime must be a number");
+    assert.equal(typeof first.endTime, "number", "endTime must be a number");
+    assert.ok(extracted.metadata.videoUrl.includes("watch?v="), "videoUrl must be valid YouTube link");
     console.log(`    ✓ YouTube Extracted: "${extracted.metadata.title}" (${extracted.items.length} blocks, ${extracted.metadata.wordCount} words)`);
   });
 
@@ -102,7 +100,8 @@ describe("PREPMIND HYBRID AI & YOUTUBE INGESTION TEST SUITE", () => {
     assert.equal(storedChunks.length, testSource.metadata.chunkCount);
 
     const sampleChunk = storedChunks[0];
-    assert.ok(sampleChunk.metadata.timestamp, "Stored chunk must retain timestamp");
+    assert.ok(sampleChunk.metadata.section, "Stored chunk must retain its time range");
+    assert.equal(typeof sampleChunk.metadata.startTime, "number", "Stored chunk must retain startTime");
     assert.equal(sampleChunk.metadata.sourceType, "YOUTUBE");
     console.log(`    ✓ Ingestion Pipeline READY: ${storedChunks.length} chunks embedded & indexed in FAISS`);
   });

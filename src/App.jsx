@@ -7,6 +7,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import { Navigation } from "./components/Navigation";
+import { Footer } from "./components/Footer";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "./context/AuthContext";
 import Landing from "./pages/Landing";
@@ -112,6 +113,7 @@ function AppShell({ theme, onThemeToggle, onSetTheme }) {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      {showNav && <Footer theme={theme} />}
     </div>
   );
 }

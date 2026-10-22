@@ -67,6 +67,15 @@ app.get("/api/health", (request, response) => {
   });
 });
 
+// Fail fast with a clear message instead of letting queries buffer and time out
+app.use("/api", (request, response, next) => {
+  if (isDatabaseConnected()) return next();
+  response.status(503).json({
+    success: false,
+    code: "DATABASE_UNAVAILABLE",
+    message: "PrepMind can't reach its database right now. Please try again in a few seconds.",
+  });
+});
 
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/users", userRoutes);

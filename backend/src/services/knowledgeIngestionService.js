@@ -13,7 +13,6 @@ const { extractPptx } = require("./extractors/pptxExtractor");
 const { extractPpt } = require("./extractors/pptExtractor");
 const { extractTxt } = require("./extractors/txtExtractor");
 const { extractYouTube } = require("./extractors/youtubeExtractor");
-<<<<<<< HEAD
 
 const PROCESSABLE_STATUSES = ["UPLOADING", "READY", "FAILED"];
 // A run that has not updated its status for this long is treated as abandoned
@@ -28,11 +27,11 @@ function describeIndexingError(error) {
   if (/ECONNREFUSED|fetch failed|ENOTFOUND|EAI_AGAIN|timeout|connection attempts failed/i.test(text)) {
     return createHttpError(
       503,
-      "Embedding service unavailable. Make sure the AI service and Ollama are running, then retry.",
+      "Embedding service unavailable. Make sure the AI service is running, then retry.",
       "EMBEDDING_SERVICE_UNAVAILABLE",
     );
   }
-  if (/embedding|ollama/i.test(text)) {
+  if (/embedding/i.test(text)) {
     return createHttpError(
       503,
       `Embedding service unavailable: ${error.message}`,
@@ -45,8 +44,6 @@ function describeIndexingError(error) {
     "INDEXING_FAILED",
   );
 }
-=======
->>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
 
 async function extractContent(source) {
   if (source.type === "YOUTUBE") {
@@ -72,16 +69,6 @@ async function extractContent(source) {
       return await extractPpt(source.filePath);
     case "TXT":
       return await extractTxt(source.filePath);
-<<<<<<< HEAD
-=======
-    case "YOUTUBE": {
-      const url = source.youtubeUrl || source.filePath;
-      if (!url) {
-        throw createHttpError(400, "YouTube video URL is missing from knowledge source.");
-      }
-      return await extractYouTube(url);
-    }
->>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
     default:
       throw createHttpError(400, `Unsupported source type: ${source.type}`);
   }
@@ -160,22 +147,10 @@ async function processKnowledgeSource(sourceId, userId) {
     );
 
     if (totalChars === 0 || !extracted.items || extracted.items.length === 0) {
-<<<<<<< HEAD
       if (source.type === "YOUTUBE") {
         throw createHttpError(422, "The transcript for this video is empty.", "EMPTY_TRANSCRIPT");
       }
       throw createHttpError(400, "PDF contains no extractable text and OCR could not recover text.");
-=======
-      throw createHttpError(400, "Document contains no extractable text.");
-    }
-
-    if (source.type === "YOUTUBE" && extracted.metadata?.title) {
-      if (!source.title || source.title === "YouTube Video Knowledge" || source.title === "YouTube Video") {
-        source.title = extracted.metadata.title;
-      }
-      source.originalFileName = extracted.metadata.title;
-      await source.save();
->>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
     }
 
     // 2. CLEANING_CONTENT
@@ -246,16 +221,10 @@ async function processKnowledgeSource(sourceId, userId) {
       pageCount: extracted.metadata?.pageCount ?? source.metadata?.pageCount ?? 0,
       wordCount: extracted.metadata?.wordCount ?? 0,
       chunkCount: insertedChunks.length,
-<<<<<<< HEAD
       processingTimes: {
         ...timings,
         totalSeconds: elapsedSeconds(pipelineStartedAt),
       },
-=======
-      duration: extracted.metadata?.formattedDuration ?? null,
-      videoId: extracted.metadata?.videoId ?? null,
-      videoUrl: extracted.metadata?.videoUrl ?? source.youtubeUrl ?? null,
->>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
     };
     source.status = "READY";
     source.errorMessage = null;

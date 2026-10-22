@@ -96,15 +96,8 @@ function createChunksFromExtractedItems(
     const page = typeof item === "object" ? item.page : null;
     const slide = typeof item === "object" ? item.slide : null;
     const section = typeof item === "object" ? item.section : null;
-<<<<<<< HEAD
     const startTime = typeof item === "object" ? item.startTime : null;
     const endTime = typeof item === "object" ? item.endTime : null;
-=======
-    const timestamp = typeof item === "object" ? item.timestamp : null;
-    const startSeconds = typeof item === "object" ? item.startSeconds : null;
-    const endSeconds = typeof item === "object" ? item.endSeconds : null;
-    const videoUrl = typeof item === "object" ? item.videoUrl : null;
->>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
 
     const rawChunks = chunkText(itemText, { chunkSize, chunkOverlap });
 
@@ -118,15 +111,8 @@ function createChunksFromExtractedItems(
           page: page ?? null,
           slide: slide ?? null,
           section: section ?? null,
-<<<<<<< HEAD
           startTime: startTime ?? null,
           endTime: endTime ?? null,
-=======
-          timestamp: timestamp ?? null,
-          startSeconds: startSeconds ?? null,
-          endSeconds: endSeconds ?? null,
-          videoUrl: videoUrl ?? null,
->>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
           sourceType,
           originalFileName: originalFileName ?? null,
         },

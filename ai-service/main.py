@@ -18,14 +18,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger("prepmind_ai_service")
 logger.info("[AI SERVICE] URL configured: http://localhost:%s", settings.AI_SERVICE_PORT)
-logger.info("[GROQ] Primary text generation engine: %s (model: %s)", settings.GROQ_BASE_URL, settings.GROQ_MODEL)
-logger.info("[EMBEDDING] Local embedding engine: %s (model: %s)", settings.OLLAMA_BASE_URL, settings.OLLAMA_EMBEDDING_MODEL)
+logger.info("[OLLAMA] Base URL configured: %s", settings.OLLAMA_BASE_URL)
+logger.info("[OLLAMA] Generation model configured: %s", settings.OLLAMA_LLM_MODEL)
+logger.info("[EMBEDDING] Local model configured: %s", settings.EMBEDDING_MODEL)
+logger.info("[LLM] Provider: %s | model: %s", llm_service.provider, llm_service.model)
 
 app = FastAPI(
     title="PrepMind AI & Vector Service",
     version="1.0.0",
-    description="Python FastAPI service for Groq text generation, local embeddings, and FAISS vector search"
+    description="Python FastAPI service for Ollama embeddings, FAISS vector search, and RAG generation"
 )
+
+@app.on_event("startup")
+async def warm_up_embedding_model():
+    # Load all-MiniLM-L6-v2 in the background so the first upload isn't slowed by model loading
+    import asyncio
+    asyncio.create_task(embedding_service.warm_up())
 
 app.add_middleware(
     CORSMiddleware,
@@ -120,23 +128,23 @@ class EvaluateRequest(BaseModel):
 
 @app.get("/health")
 async def health_check():
-    ai_health = await llm_service.check_health()
-    embedding_healthy = await embedding_service.check_health()
-    is_ok = bool(ai_health.get("available") and embedding_healthy)
+    health = await llm_service.check_health()
+    embedding = embedding_service.health_info()
+    provider = health.get("provider", llm_service.provider)
     return {
-        "status": "ok" if is_ok else "degraded",
+        "status": "ok" if health.get("available") else "degraded",
         "service": "prepmind-ai-service",
-        "primaryProvider": ai_health.get("primaryProvider", "groq"),
-        "fallbackProvider": ai_health.get("fallbackProvider", "ollama"),
-        "activeProvider": ai_health.get("activeProvider", "groq"),
-        "textGenerationProvider": ai_health.get("activeProvider", "groq"),
-        "groq": ai_health.get("groq", {}),
-        "ollama": ai_health.get("ollama", {}),
-        "embedding": {
-            "available": embedding_healthy,
-            "active_embedding": settings.OLLAMA_EMBEDDING_MODEL,
-            "dimension": 384,
+        "primaryProvider": llm_service.provider,
+        "fallbackProvider": "ollama" if llm_service.provider == "groq" else "none",
+        "activeProvider": provider if health.get("available") else "none",
+        "groq": {
+            "available": provider == "groq" and bool(health.get("available")),
+            "model": llm_service.model if provider == "groq" else None,
+            **({"error": health.get("error")} if provider == "groq" and health.get("error") else {}),
         },
+        "embedding": {**embedding, "active_embedding": embedding["model"]},
+        # Kept under the historical "ollama" key for existing clients
+        "ollama": health,
         "embeddingDimension": 384,
         "threshold": settings.RAG_SIMILARITY_THRESHOLD,
         "topK": settings.TOP_K,
@@ -144,15 +152,6 @@ async def health_check():
             "basePath": str(settings.FAISS_BASE_PATH),
             "status": "active"
         }
-    }
-
-@app.get("/groq/diagnostic")
-@app.get("/ai/diagnostic")
-async def ai_diagnostic():
-    diag = await llm_service.check_health(force_refresh=True)
-    return {
-        "success": True,
-        "data": diag
     }
 
 @app.get("/user-stats/{user_id}")

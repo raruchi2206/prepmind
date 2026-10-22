@@ -48,3 +48,6 @@ data/
 
 # TypeScript (if added later)
 *.tsbuildinfo
+# Python
+__pycache__/
+*.pyc

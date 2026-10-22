@@ -73,7 +73,8 @@ const assessmentSchema = new mongoose.Schema(
           {
             id: mongoose.Schema.Types.Mixed,
             question: String,
-            type: { type: String, default: "SHORT_ANSWER" },
+            // Wrapped so Mongoose treats "type" as a field, not as this subdocument's type
+            type: { type: String },
             options: [String],
             correctAnswer: mongoose.Schema.Types.Mixed,
             expectedAnswer: String,

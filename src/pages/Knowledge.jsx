@@ -144,9 +144,34 @@ function ProcessingModal({
           ? "Importing YouTube Video"
           : "Ingesting Document";
 
+  const inProgress = !isComplete && !error && !duplicate;
+
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="panel w-full max-w-md p-8 text-center animate-fade-in-up">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={heading}
+        className="panel relative w-full max-w-md p-8 text-center animate-fade-in-up"
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="icon-button absolute right-4 top-4"
+          aria-label={inProgress ? "Close and continue in background" : "Close"}
+          title={inProgress ? "Close — processing continues in the background" : "Close"}
+        >
+          ✕
+        </button>
         <h4 className="font-display text-xl text-[var(--text-primary)]">
           {heading}
         </h4>
@@ -188,12 +213,20 @@ function ProcessingModal({
               Reprocess ↻
             </button>
           </div>
-        ) : (
-          (isComplete || error) && (
-            <button onClick={onClose} className="btn btn-primary mt-8 w-full">
-              {error ? "Close" : "View Knowledge Library →"}
+        ) : inProgress ? (
+          <>
+            <button onClick={onClose} className="btn btn-ghost mt-8 w-full">
+              Continue in background
             </button>
-          )
+            <p className="mt-3 text-[0.7rem] text-[var(--text-secondary)]">
+              You can close this window. Processing keeps running and the library shows its
+              status.
+            </p>
+          </>
+        ) : (
+          <button onClick={onClose} className="btn btn-primary mt-8 w-full">
+            {error ? "Close" : "View Knowledge Library →"}
+          </button>
         )}
       </div>
     </div>
@@ -219,27 +252,11 @@ function YouTubeSection({ onImport }) {
     setError("");
 
     try {
-<<<<<<< HEAD
       const ok = await onImport({ url: url.trim(), title: title.trim() || undefined });
       if (ok) {
         setUrl("");
         setTitle("");
       }
-=======
-      const res = await knowledgeApi.create({
-        title: title.trim() || "YouTube Video Knowledge",
-        type: "YOUTUBE",
-        youtubeUrl: url.trim(),
-      });
-      const createdSource = res?.data?.knowledgeSource;
-      setUrl("");
-      setTitle("");
-      if (onCreated && createdSource) {
-        await onCreated(createdSource.id, createdSource.title);
-      }
-    } catch (err) {
-      setError(err.message || "Failed to add YouTube link");
->>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
     } finally {
       setLoading(false);
     }
@@ -290,7 +307,28 @@ export default function Knowledge({ theme }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
-  const [processingState, setProcessingState] = useState(null); // { title, status, error, isComplete }
+  const [processingState, setProcessingState] = useState(null); // { runId, title, status, error, isComplete }
+  const [notice, setNotice] = useState("");
+  const runRef = useRef(0);
+
+  // Each ingestion run owns the modal only while it is the latest run, so a run that
+  // finishes after the modal was closed (or replaced) never reopens or overwrites it.
+  const startRun = (state) => {
+    const runId = ++runRef.current;
+    setProcessingState({ ...state, runId });
+    return runId;
+  };
+  const updateRun = (runId, update) =>
+    setProcessingState((prev) => (prev && prev.runId === runId ? update(prev) : prev));
+
+  const closeProcessing = () => {
+    if (processingState && !processingState.isComplete && !processingState.error && !processingState.duplicate) {
+      setNotice(
+        `"${processingState.title}" is still processing in the background. Its status updates in the library below.`,
+      );
+    }
+    setProcessingState(null);
+  };
   const fileRef = useRef(null);
   const light = theme === "light";
 
@@ -311,6 +349,21 @@ export default function Knowledge({ theme }) {
     loadKnowledge();
   }, []);
 
+  // Keep library statuses live while any source is still being processed
+  const hasActiveSources = items.some(
+    (item) => item.status !== "READY" && item.status !== "FAILED",
+  );
+  useEffect(() => {
+    if (!hasActiveSources) return undefined;
+    const timer = setInterval(loadKnowledge, 3000);
+    return () => clearInterval(timer);
+  }, [hasActiveSources]);
+
+  // Clear the background notice once nothing is processing anymore
+  useEffect(() => {
+    if (!hasActiveSources && !processingState) setNotice("");
+  }, [hasActiveSources, processingState]);
+
   const handleUpload = async (file) => {
     if (!file) return;
 
@@ -327,7 +380,7 @@ export default function Knowledge({ theme }) {
     }
 
     setError("");
-    setProcessingState({
+    const runId = startRun({
       title: file.name,
       status: "UPLOADING",
       error: null,
@@ -346,7 +399,7 @@ export default function Knowledge({ theme }) {
         throw new Error("Failed to initialize document record on server.");
       }
 
-      setProcessingState((prev) => ({
+      updateRun(runId, (prev) => ({
         ...prev,
         status: "EXTRACTING_CONTENT",
       }));
@@ -354,7 +407,7 @@ export default function Knowledge({ theme }) {
       // 2. Process and Ingest Document
       await knowledgeApi.process(source.id);
 
-      setProcessingState((prev) => ({
+      updateRun(runId, (prev) => ({
         ...prev,
         status: "READY",
         isComplete: true,
@@ -363,7 +416,7 @@ export default function Knowledge({ theme }) {
       // 3. Refresh list from backend
       await loadKnowledge();
     } catch (err) {
-      setProcessingState((prev) => ({
+      updateRun(runId, (prev) => ({
         ...prev,
         error: err.message || "Failed to ingest document",
       }));
@@ -374,9 +427,8 @@ export default function Knowledge({ theme }) {
     }
   };
 
-<<<<<<< HEAD
   // Runs /process while polling the source so the modal shows real backend stages
-  const processWithPolling = async (sourceId) => {
+  const processWithPolling = async (sourceId, runId) => {
     let stopped = false;
     const poll = async () => {
       while (!stopped) {
@@ -386,9 +438,11 @@ export default function Knowledge({ theme }) {
           const res = await knowledgeApi.getById(sourceId);
           const current = res?.data?.knowledgeSource;
           if (current && !stopped && current.status !== "READY" && current.status !== "FAILED") {
-            setProcessingState((prev) =>
-              prev ? { ...prev, status: current.status, title: current.title } : prev,
-            );
+            updateRun(runId, (prev) => ({
+              ...prev,
+              status: current.status,
+              title: current.title,
+            }));
           }
         } catch {
           // Polling is best-effort; the process request reports the real outcome
@@ -405,7 +459,7 @@ export default function Knowledge({ theme }) {
 
   const runYouTubeImport = async ({ url, title, reprocess = false }) => {
     setError("");
-    setProcessingState({
+    const runId = startRun({
       kind: "youtube",
       title: title || url,
       status: "UPLOADING",
@@ -424,21 +478,21 @@ export default function Knowledge({ theme }) {
     } catch (err) {
       if (err?.payload?.code === "DUPLICATE_YOUTUBE_SOURCE") {
         const existing = err.payload.details?.knowledgeSource;
-        setProcessingState((prev) => ({
+        updateRun(runId, (prev) => ({
           ...prev,
           title: existing?.title || prev.title,
           duplicate: existing || {},
         }));
         return false;
       }
-      setProcessingState((prev) => ({
+      updateRun(runId, (prev) => ({
         ...prev,
         error: err.message || "Failed to import YouTube video",
       }));
       return false;
     }
 
-    setProcessingState((prev) => ({
+    updateRun(runId, (prev) => ({
       ...prev,
       title: source.title,
       status: "EXTRACTING_CONTENT",
@@ -446,7 +500,7 @@ export default function Knowledge({ theme }) {
     await loadKnowledge();
 
     try {
-      const res = await processWithPolling(source.id);
+      const res = await processWithPolling(source.id, runId);
       const ready = res?.data?.knowledgeSource;
       const times = res?.data?.processingTimes || {};
       const details = [
@@ -456,7 +510,7 @@ export default function Knowledge({ theme }) {
       ]
         .filter(Boolean)
         .join(" · ");
-      setProcessingState((prev) => ({
+      updateRun(runId, (prev) => ({
         ...prev,
         title: ready?.title || prev.title,
         status: "READY",
@@ -465,7 +519,7 @@ export default function Knowledge({ theme }) {
       }));
       return true;
     } catch (err) {
-      setProcessingState((prev) => ({
+      updateRun(runId, (prev) => ({
         ...prev,
         error: err.message || "Failed to process YouTube video",
       }));
@@ -480,7 +534,7 @@ export default function Knowledge({ theme }) {
       await runYouTubeImport({ url: knowledgeItem.youtubeUrl, reprocess: true });
       return;
     }
-    setProcessingState({
+    const runId = startRun({
       title: knowledgeItem.title,
       status: "EXTRACTING_CONTENT",
       error: null,
@@ -488,37 +542,13 @@ export default function Knowledge({ theme }) {
     });
     try {
       await knowledgeApi.process(knowledgeItem.id);
-      setProcessingState((prev) => ({ ...prev, status: "READY", isComplete: true }));
+      updateRun(runId, (prev) => ({ ...prev, status: "READY", isComplete: true }));
     } catch (err) {
-      setProcessingState((prev) => ({
+      updateRun(runId, (prev) => ({
         ...prev,
         error: err.message || "Failed to process document",
       }));
     } finally {
-=======
-  const handleProcessSource = async (id, title) => {
-    setError("");
-    setProcessingState({
-      title: title || "Processing Knowledge Source",
-      status: "EXTRACTING_CONTENT",
-      error: null,
-      isComplete: false,
-    });
-
-    try {
-      await knowledgeApi.process(id);
-      setProcessingState((prev) => ({
-        ...prev,
-        status: "READY",
-        isComplete: true,
-      }));
-      await loadKnowledge();
-    } catch (err) {
-      setProcessingState((prev) => ({
-        ...prev,
-        error: err.message || "Failed to process knowledge source",
-      }));
->>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
       await loadKnowledge();
     }
   };
@@ -557,7 +587,7 @@ export default function Knowledge({ theme }) {
           onReprocess={() =>
             runYouTubeImport({ ...processingState.request, reprocess: true })
           }
-          onClose={() => setProcessingState(null)}
+          onClose={closeProcessing}
         />
       )}
 
@@ -573,6 +603,20 @@ export default function Knowledge({ theme }) {
         {error && (
           <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
             {error}
+          </div>
+        )}
+
+        {notice && (
+          <div className="mb-6 flex items-start justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 text-sm text-[var(--text-secondary)]">
+            <span>{notice}</span>
+            <button
+              type="button"
+              onClick={() => setNotice("")}
+              className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
           </div>
         )}
 
@@ -620,14 +664,7 @@ export default function Knowledge({ theme }) {
             </div>
           </div>
 
-<<<<<<< HEAD
           <YouTubeSection onImport={runYouTubeImport} />
-=======
-          <YouTubeSection
-            theme={theme}
-            onCreated={handleProcessSource}
-          />
->>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
         </div>
 
         <section className="animate-fade-in-up delay-200">
@@ -739,7 +776,6 @@ export default function Knowledge({ theme }) {
                         >
                           View
                         </Link>
-<<<<<<< HEAD
                         {(isYouTube || knowledgeItem.status === "FAILED") && (
                           <button
                             type="button"
@@ -755,42 +791,25 @@ export default function Knowledge({ theme }) {
                           </button>
                         )}
                         {!isYouTube && (
-=======
-                        {knowledgeItem.status !== "READY" && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleProcessSource(
-                                knowledgeItem.id,
-                                knowledgeItem.title,
-                              )
-                            }
-                            className="btn btn-ghost btn-sm font-mono text-[10px] text-amber-500 hover:text-amber-400"
-                            title="Process transcript / document"
-                          >
-                            Process ↻
-                          </button>
-                        )}
->>>>>>> ab8a428 (Uploading of folder,ppt and youtube video link are enabled and quiz generation happening)
                         <button
                           type="button"
                           onClick={async () => {
+                            const runId = startRun({
+                              title: knowledgeItem.title,
+                              status: "EMBEDDING",
+                              error: null,
+                              isComplete: false,
+                            });
                             try {
-                              setProcessingState({
-                                title: knowledgeItem.title,
-                                status: "EMBEDDING",
-                                error: null,
-                                isComplete: false,
-                              });
                               await knowledgeApi.reindex(knowledgeItem.id);
-                              setProcessingState((prev) => ({
+                              updateRun(runId, (prev) => ({
                                 ...prev,
                                 status: "READY",
                                 isComplete: true,
                               }));
                               await loadKnowledge();
                             } catch (err) {
-                              setProcessingState((prev) => ({
+                              updateRun(runId, (prev) => ({
                                 ...prev,
                                 error: err.message || "Failed to re-index",
                               }));
@@ -986,30 +1005,6 @@ export function KnowledgeDetail({ theme }) {
               </p>
             )}
           </div>
-
-          {chunks.length > 0 && (
-            <div className="mt-8 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5">
-              <p className="section-label">Indexed Chunks ({chunks.length})</p>
-              <div className="mt-4 space-y-3 max-h-96 overflow-y-auto pr-1">
-                {chunks.map((c, idx) => (
-                  <div
-                    key={c.id || idx}
-                    className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-xs"
-                  >
-                    <div className="flex items-center justify-between font-mono text-[10px] text-[var(--accent)] mb-1">
-                      <span>Chunk #{c.chunkIndex + 1}</span>
-                      {c.metadata?.timestamp && (
-                        <span className="text-amber-500 font-semibold">{c.metadata.timestamp}</span>
-                      )}
-                    </div>
-                    <p className="text-[var(--text-secondary)] line-clamp-3 leading-relaxed">
-                      {c.text}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link to={`/create?knowledge=${source.id}`} className="btn btn-primary flex-1">

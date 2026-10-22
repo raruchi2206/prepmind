@@ -1,5 +1,5 @@
 const { z } = require("zod");
-const { extractVideoId } = require("../services/extractors/youtubeExtractor");
+const { extractYouTubeVideoId: extractVideoId } = require("../utils/youtube");
 
 const createKnowledgeSourceSchema = z
   .object({
@@ -7,8 +7,7 @@ const createKnowledgeSourceSchema = z
       .string()
       .trim()
       .max(200, "Title cannot exceed 200 characters")
-      .optional()
-      .default("YouTube Video Knowledge"),
+      .optional(),
     type: z.enum(["PDF", "IMAGE", "PPTX", "PPT", "DOCX", "DOC", "TXT", "YOUTUBE"], {
       errorMap: () => ({
         message: "Type must be one of PDF, IMAGE, PPTX, PPT, DOCX, DOC, TXT, or YOUTUBE",

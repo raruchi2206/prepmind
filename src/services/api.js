@@ -10,10 +10,43 @@ export class ApiError extends Error {
   }
 }
 
+// Auth endpoints never trigger a silent refresh (avoids loops on login/refresh itself)
+const NO_REFRESH_PATHS = ["/auth/login", "/auth/register", "/auth/refresh", "/auth/logout"];
+let refreshPromise = null;
+
+// Concurrent 401s share one /auth/refresh call
+function refreshAccessToken() {
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+    })
+      .then((response) => response.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+// Sends the request; on an expired access token, refreshes once and retries
+async function fetchWithRefresh(path, init) {
+  const send = () => fetch(`${API_BASE_URL}${path}`, { ...init, credentials: "include" });
+  let response = await send();
+  if (response.status === 401 && !NO_REFRESH_PATHS.some((p) => path.startsWith(p))) {
+    if (await refreshAccessToken()) {
+      response = await send();
+    } else {
+      window.dispatchEvent(new Event("auth:expired"));
+    }
+  }
+  return response;
+}
+
 export async function apiRequest(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetchWithRefresh(path, {
     ...options,
-    credentials: "include",
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
   });
   const payload = await response.json().catch(() => ({}));
@@ -75,9 +108,8 @@ export const authApi = {
 };
 
 export async function apiUpload(path, formData) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetchWithRefresh(path, {
     method: "POST",
-    credentials: "include",
     body: formData,
   });
   const payload = await response.json().catch(() => ({}));
