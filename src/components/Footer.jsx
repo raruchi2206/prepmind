@@ -79,8 +79,11 @@ export function Footer({ theme }) {
           <p className="font-mono text-[0.62rem] uppercase tracking-[0.14em] text-[var(--text-secondary)]">
             © {new Date().getFullYear()} PrepMind. All rights reserved.
           </p>
-          <p className="font-mono text-[0.62rem] uppercase tracking-[0.14em] text-[var(--text-secondary)]">
-            Turn your knowledge into intelligent preparation.
+          <p className="text-sm text-[var(--text-secondary)]">
+            Made with <span className="text-red-400" aria-label="love">♥</span> by{" "}
+            <span className="text-[var(--text-primary)]">Ruchi Rana</span>,{" "}
+            <span className="text-[var(--text-primary)]">Afzal Surti</span> &amp;{" "}
+            <span className="text-[var(--text-primary)]">Jahnvi Vanzara</span>
           </p>
         </div>
       </div>
