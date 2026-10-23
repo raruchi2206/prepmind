@@ -210,6 +210,7 @@ class AIServiceClient {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title, text: text.slice(0, 60000), wordCount }),
+      dispatcher: this.quizDispatcher,
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
     if (!res.ok) {
@@ -219,7 +220,7 @@ class AIServiceClient {
   }
 
   // Maps AI service failures to HTTP errors the frontend can show directly
-  async postGeneration(path, body, label) {
+  async postGeneration(path, body, label, { signal } = {}) {
     let res;
     try {
       res = await fetch(`${this.baseUrl}${path}`, {
@@ -227,8 +228,12 @@ class AIServiceClient {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
         dispatcher: this.quizDispatcher,
+        signal,
       });
     } catch (error) {
+      if (signal?.aborted || error.name === "AbortError") {
+        throw createHttpError(499, "Generation request was cancelled by the client.", "REQUEST_CANCELLED");
+      }
       throw createHttpError(503, this.formatConnectionError(error, "AI generation service"), "AI_SERVICE_UNAVAILABLE");
     }
     if (!res.ok) {
@@ -317,6 +322,7 @@ class AIServiceClient {
     const res = await fetch(`${this.baseUrl}/rag/ask`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      dispatcher: this.quizDispatcher,
       body: JSON.stringify({ query, chunks, conversationHistory }),
     });
 
@@ -329,12 +335,12 @@ class AIServiceClient {
     return data.data;
   }
 
-  async generateSummary(chunks, title) {
-    return this.postGeneration("/rag/summary", { chunks, title }, "Summary generation");
+  async generateSummary(chunks, title, { signal } = {}) {
+    return this.postGeneration("/rag/summary", { chunks, title }, "Summary generation", { signal });
   }
 
-  async generateNotes(chunks, title) {
-    return this.postGeneration("/rag/notes", { chunks, title }, "Notes generation");
+  async generateNotes(chunks, title, { signal } = {}) {
+    return this.postGeneration("/rag/notes", { chunks, title }, "Notes generation", { signal });
   }
 
   async generateQuiz(

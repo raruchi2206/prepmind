@@ -26,20 +26,6 @@ const modes = [
     route: "/quiz",
   },
   {
-    id: "paper",
-    label: "PRACTICE PAPER",
-    sub: "Build a more complete practice exercise.",
-    icon: "◻",
-    route: "/practice-paper",
-  },
-  {
-    id: "viva",
-    label: "VIVA",
-    sub: "Practice oral responses and concept checks.",
-    icon: "◈",
-    route: "/viva",
-  },
-  {
     id: "ask",
     label: "ASK PREPMIND",
     sub: "Ask anything grounded in your selected sources.",
@@ -164,10 +150,11 @@ export default function Create({ theme }) {
                 className="w-full text-sm font-medium px-4 py-3.5 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] transition-all"
               >
                 {knowledgeList.map((source) => {
-                  const chunkCount = source.metadata?.chunkCount ?? 0;
+                  const statusLabel = source.status === "READY" ? "Ready" : "Processing";
+                  const typeLabel = source.type === "YOUTUBE" ? "YouTube" : source.type;
                   return (
                     <option key={source.id} value={source.id}>
-                      {source.title} ({source.type} · {chunkCount} chunks · {source.status})
+                      {source.title} ({typeLabel} · {statusLabel})
                     </option>
                   );
                 })}

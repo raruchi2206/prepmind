@@ -1,5 +1,6 @@
 @import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,300;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
+@import "katex/dist/katex.min.css";
 
 @theme inline {
   --color-background: var(--background);
@@ -704,4 +705,187 @@ p {
   .btn-sm {
     letter-spacing: 0.08em;
   }
+}
+
+/* ============================================================
+   Academic Markdown & KaTeX Typography Styles
+   ============================================================ */
+.academic-markdown {
+  color: var(--text-primary);
+  line-height: 1.75;
+  word-break: break-word;
+}
+
+.academic-markdown h1 {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 500;
+  margin-top: 1.75rem;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.academic-markdown h2 {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 500;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: var(--text-primary);
+}
+
+.academic-markdown h3 {
+  font-family: var(--font-display);
+  font-size: 1.18rem;
+  font-weight: 500;
+  margin-top: 1.25rem;
+  margin-bottom: 0.6rem;
+  color: var(--accent);
+}
+
+.academic-markdown h4,
+.academic-markdown h5,
+.academic-markdown h6 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.academic-markdown p {
+  margin-bottom: 0.9rem;
+}
+
+.academic-markdown ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+  space-y: 0.4rem;
+}
+
+.academic-markdown ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+  space-y: 0.4rem;
+}
+
+.academic-markdown li {
+  margin-bottom: 0.35rem;
+}
+
+.academic-markdown li > ul,
+.academic-markdown li > ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.academic-markdown strong,
+.academic-markdown b {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.academic-markdown em,
+.academic-markdown i {
+  font-style: italic;
+}
+
+.academic-markdown blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 0.6rem 1rem;
+  margin: 1rem 0;
+  background: var(--surface-muted);
+  border-radius: 0 0.5rem 0.5rem 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.academic-markdown blockquote p {
+  margin-bottom: 0;
+}
+
+.academic-markdown pre {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  padding: 1rem;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin: 1rem 0;
+}
+
+.academic-markdown code:not(pre code) {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  border-radius: 0.25rem;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  color: var(--accent);
+}
+
+.academic-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.25rem 0;
+  font-size: 0.875rem;
+  overflow-x: auto;
+  display: block;
+}
+
+.academic-markdown th {
+  background: var(--surface-elevated);
+  font-weight: 600;
+  text-align: left;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.academic-markdown td {
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.academic-markdown tr:nth-child(even) td {
+  background: rgba(225, 220, 201, 0.02);
+}
+
+.academic-markdown hr {
+  border: 0;
+  height: 1px;
+  background: var(--border);
+  margin: 1.5rem 0;
+}
+
+.katex-display-container {
+  display: block;
+  margin: 1.25rem 0;
+  padding: 0.75rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+
+.katex-display-container .katex-display {
+  margin: 0;
+}
+
+.katex-inline-container {
+  vertical-align: middle;
+}
+
+.timestamp-pill {
+  transition: all 0.15s ease-in-out;
+}
+.timestamp-pill:hover {
+  background: var(--surface);
+  border-color: var(--accent);
 }

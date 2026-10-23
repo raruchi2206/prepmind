@@ -185,40 +185,29 @@ export const ragApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  ask: (body) =>
+  ask: (body, options = {}) =>
     apiRequest("/rag/ask", {
       method: "POST",
       body: JSON.stringify(body),
+      ...options,
     }),
-  generateSummary: (body) =>
+  generateSummary: (body, options = {}) =>
     apiRequest("/rag/generate/summary", {
       method: "POST",
       body: JSON.stringify(body),
+      ...options,
     }),
-  generateNotes: (body) =>
+  generateNotes: (body, options = {}) =>
     apiRequest("/rag/generate/notes", {
       method: "POST",
       body: JSON.stringify(body),
+      ...options,
     }),
-  generateQuiz: (body) =>
+  generateQuiz: (body, options = {}) =>
     apiRequest("/rag/generate/quiz", {
       method: "POST",
       body: JSON.stringify(body),
-    }),
-  generatePaper: (body) =>
-    apiRequest("/rag/generate/paper", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  generateViva: (body) =>
-    apiRequest("/rag/generate/viva", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  evaluateViva: (body) =>
-    apiRequest("/rag/evaluate/viva", {
-      method: "POST",
-      body: JSON.stringify(body),
+      ...options,
     }),
   getAssessment: (id) => apiRequest(`/rag/assessments/${id}`),
   submitAttempt: (id, body) =>

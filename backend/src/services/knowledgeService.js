@@ -212,10 +212,7 @@ async function reindexKnowledgeSource({ id, userId }) {
 
     source.status = "READY";
     source.errorMessage = null;
-    source.metadata = {
-      ...(source.metadata || {}),
-      chunkCount: chunks.length,
-    };
+    source.set("metadata.chunkCount", chunks.length);
     await source.save();
 
     return {

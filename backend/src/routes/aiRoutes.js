@@ -30,7 +30,7 @@ router.get("/health", async (req, res, next) => {
       fallbackProvider: health?.fallbackProvider || "ollama",
       activeProvider: health?.activeProvider || "groq",
       groqAvailable: Boolean(health?.groq?.available),
-      ollamaAvailable: health?.ollama?.provider === "ollama" && Boolean(health?.ollama?.available),
+      ollamaAvailable: Boolean(health?.ollama?.available),
       llm: health?.groq?.model || health?.ollama?.model || "openai/gpt-oss-120b",
       embedding: health?.embedding?.active_embedding || "all-minilm:latest",
       data: health,

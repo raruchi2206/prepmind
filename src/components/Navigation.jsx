@@ -27,8 +27,6 @@ const sidebarTools = [
   { label: "Summary", path: "/summary", icon: "◎" },
   { label: "Notes", path: "/notes", icon: "≡" },
   { label: "Quiz", path: "/quiz", icon: "◇" },
-  { label: "Practice paper", path: "/practice-paper", icon: "□" },
-  { label: "Viva", path: "/viva", icon: "◈" },
   { label: "Ask PrepMind", path: "/ask", icon: "⌁" },
 ];
 

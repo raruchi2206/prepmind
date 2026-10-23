@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { KnowledgeSignal } from "./KnowledgeSignal";
 import { AcademicContent } from "./AcademicContent";
 import { knowledgeApi } from "../services/api";
+import { getRemainingTimeEstimate } from "../utils/estimatedTime";
 
 const PROCESSING_HINT = {
   AWAITING_REVIEW: "This video is waiting for your review on the Knowledge page.",
@@ -37,7 +38,43 @@ export function GeneratedDocumentPage({
   const [result, setResult] = useState(null);
   const [status, setStatus] = useState("idle"); // idle | loading | done | error
   const [error, setError] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const requestRef = useRef(0);
+  const abortControllerRef = useRef(null);
+
+  // Real-time elapsed counter while loading
+  useEffect(() => {
+    let interval = null;
+    if (status === "loading") {
+      setElapsedSeconds(0);
+      interval = setInterval(() => {
+        setElapsedSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setElapsedSeconds(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [status]);
+
+  // Cleanup abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
+  const cancelRun = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setStatus("idle");
+    setError("Generation was cancelled.");
+  }, []);
 
   const loadSources = useCallback(async () => {
     setSourcesState("loading");
@@ -67,11 +104,23 @@ export function GeneratedDocumentPage({
 
   const run = useCallback(
     async (sourceId, regenerate) => {
+      if (!sourceId || status === "loading") return;
+
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       const requestId = ++requestRef.current;
+
       setStatus("loading");
       setError("");
+
       try {
-        const res = await generate({ knowledgeSourceIds: [sourceId], regenerate });
+        const res = await generate(
+          { knowledgeSourceIds: [sourceId], regenerate },
+          { signal: controller.signal }
+        );
         if (requestId !== requestRef.current) return;
         const data = res?.data;
         if (!data || typeof data.content !== "string" || !data.content.trim()) {
@@ -81,11 +130,20 @@ export function GeneratedDocumentPage({
         setStatus("done");
       } catch (err) {
         if (requestId !== requestRef.current) return;
+        if (err?.name === "AbortError" || controller.signal.aborted) {
+          setStatus("idle");
+          setError("Generation was cancelled.");
+          return;
+        }
         setError(err.message || `Unable to generate the ${kind} right now.`);
         setStatus("error");
+      } finally {
+        if (requestId === requestRef.current) {
+          abortControllerRef.current = null;
+        }
       }
     },
-    [generate, kind],
+    [generate, kind, status],
   );
 
   // Opening with ?knowledge=<id> loads the saved result (or generates one) automatically
@@ -100,6 +158,10 @@ export function GeneratedDocumentPage({
   }, [sourcesState, requestedId, sources, run]);
 
   const selectSource = (id) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     requestRef.current += 1;
     setSelectedId(id);
     setResult(null);
@@ -224,29 +286,61 @@ export function GeneratedDocumentPage({
         ) : blocker ? (
           blocker
         ) : status === "loading" ? (
-          <div className="panel flex flex-col items-center gap-5 p-12 text-center" aria-busy="true">
+          <div className="panel flex flex-col items-center gap-6 p-12 text-center" aria-busy="true">
             <KnowledgeSignal size={80} animated light={light} />
-            <div>
+            <div className="max-w-md">
               <h3 className="font-display text-2xl text-[var(--text-primary)]">{loadingTitle}</h3>
-              <p className="mt-2 font-mono text-xs uppercase tracking-widest text-[var(--text-secondary)]">
-                {loadingDetail}
+              <p className="mt-2 font-mono text-xs uppercase tracking-widest text-[var(--accent)] font-semibold">
+                {elapsedSeconds < 4
+                  ? "Stage 1/4 · Retrieving source material…"
+                  : elapsedSeconds < 9
+                  ? "Stage 2/4 · Analyzing document sections…"
+                  : elapsedSeconds < 18
+                  ? "Stage 3/4 · Generating with AI (Groq / Ollama)…"
+                  : "Stage 4/4 · Formatting study document…"}
               </p>
-              <p className="mt-3 text-xs text-[var(--text-secondary)]">
-                Long documents are read section by section, so this can take a minute.
+              <div className="mt-4 flex flex-col items-center justify-center gap-1.5">
+                <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-1.5 font-mono text-xs font-semibold text-[var(--accent)] shadow-sm">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                  {getRemainingTimeEstimate({ kind, elapsedSeconds, provider: "groq" }).primary}
+                </span>
+                <span className="text-[11px] font-mono text-[var(--text-secondary)] opacity-80">
+                  {getRemainingTimeEstimate({ kind, elapsedSeconds, provider: "groq" }).secondary}
+                </span>
+              </div>
+              <p className="mt-4 text-xs text-[var(--text-secondary)] leading-relaxed">
+                {loadingDetail}. Using fast Groq inference with automatic local fallback.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={cancelRun}
+              className="btn btn-secondary btn-sm mt-2 text-xs"
+            >
+              ✕ Cancel generation
+            </button>
           </div>
         ) : status === "error" ? (
           <div className="panel p-8 text-center" role="alert">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10 text-red-500 mb-3">
+              <span className="text-xl">⚠️</span>
+            </div>
             <h3 className="font-display text-2xl text-[var(--text-primary)]">Generation failed</h3>
             <p className="mx-auto mt-3 max-w-lg text-sm text-red-400">{error}</p>
+            <p className="mx-auto mt-2 max-w-md text-xs text-[var(--text-secondary)]">
+              You can retry immediately — the system will attempt with Groq first and fall back to local Ollama if needed.
+            </p>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
-              <button type="button" onClick={() => run(selectedId, false)} className="btn btn-primary">
-                Retry
+              <button
+                type="button"
+                onClick={() => run(selectedId, false)}
+                className="btn btn-primary"
+              >
+                Retry Generation ↻
               </button>
               {selected && (
                 <Link to={`/knowledge/${selected.id}`} className="btn btn-secondary">
-                  View source
+                  View source details
                 </Link>
               )}
             </div>
@@ -266,7 +360,7 @@ export function GeneratedDocumentPage({
               )}
               {result.coverage?.condensed && (
                 <span className="rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-1 font-mono text-xs text-[var(--text-secondary)]">
-                  Covers all {result.coverage.chunks} chunks in {result.coverage.sections} sections
+                  Full coverage ({result.coverage.sections || 1} {result.coverage.sections === 1 ? "section" : "sections"})
                 </span>
               )}
               <button

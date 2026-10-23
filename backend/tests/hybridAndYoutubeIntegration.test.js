@@ -85,10 +85,17 @@ describe("PREPMIND HYBRID AI & YOUTUBE INGESTION TEST SUITE", () => {
     assert.equal(sourceRecord.type, "YOUTUBE");
 
     // Step 2: Process ingestion pipeline
-    const processResult = await knowledgeIngestionService.processKnowledgeSource(
+    let processResult = await knowledgeIngestionService.processKnowledgeSource(
       sourceRecord._id,
       testUser._id,
     );
+    if (processResult.awaitingReview) {
+      processResult = await knowledgeIngestionService.reviewSource(
+        sourceRecord._id,
+        testUser._id,
+        "approve"
+      );
+    }
     assert.ok(processResult.chunkCount > 0, "Ingestion must produce chunks");
 
     // Step 3: Verify MongoDB persistence

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { KnowledgeSignal } from "../components/KnowledgeSignal";
+import MarkdownRenderer from "../components/MarkdownRenderer";
 import { ragApi, knowledgeApi } from "../services/api";
 import { generatePracticePaperPDF, generatePracticeSolutionsPDF } from "../utils/pdfGenerator";
 
@@ -269,9 +270,9 @@ function PaperExperience({
                         [{q.marks || sec.marksPerQuestion || 5} marks]
                       </span>
                     </div>
-                    <p className="text-sm font-body leading-relaxed mb-4 text-[var(--text-primary)]">
-                      {q.question}
-                    </p>
+                    <div className="text-sm font-body leading-relaxed mb-4 text-[var(--text-primary)]">
+                      <MarkdownRenderer content={q.question} />
+                    </div>
 
                     {q.type === "MCQ" && q.options ? (
                       <div className="space-y-2">
@@ -288,7 +289,7 @@ function PaperExperience({
                                 : `${border} bg-[var(--surface)] hover:bg-[var(--surface-elevated)]`
                             }`}
                           >
-                            {opt}
+                            <MarkdownRenderer content={opt} inline />
                           </button>
                         ))}
                       </div>
@@ -313,13 +314,14 @@ function PaperExperience({
                         <p className="text-xs font-medium text-emerald-400">
                           ✓ Expected Solution / Model Answer:
                         </p>
-                        <p className="text-xs text-[var(--text-primary)] leading-relaxed">
-                          {q.expectedAnswer || q.correctAnswer || "Refer to course reference materials."}
-                        </p>
+                        <div className="text-xs text-[var(--text-primary)] leading-relaxed">
+                          <MarkdownRenderer content={q.expectedAnswer || q.correctAnswer || "Refer to course reference materials."} />
+                        </div>
                         {q.rubric && (
-                          <p className="text-[11px] font-mono text-[var(--text-secondary)] italic">
-                            Marking Rubric: {q.rubric}
-                          </p>
+                          <div className="text-[11px] font-mono text-[var(--text-secondary)] italic">
+                            <span className="font-semibold not-italic">Marking Rubric: </span>
+                            <MarkdownRenderer content={q.rubric} inline />
+                          </div>
                         )}
                       </div>
                     )}
@@ -389,9 +391,10 @@ function PaperResult({ attempt, assessment, sourceTitle, theme, onDownloadSoluti
                 <strong>Your Submission:</strong> {ans.userAnswer || "(No answer submitted)"}
               </p>
               {ans.feedback && (
-                <p className="text-xs text-[var(--text-secondary)] bg-[var(--surface-elevated)] p-2.5 rounded-lg italic border border-[var(--border)]">
-                  📝 {ans.feedback}
-                </p>
+                <div className="text-xs text-[var(--text-secondary)] bg-[var(--surface-elevated)] p-2.5 rounded-lg italic border border-[var(--border)]">
+                  <span className="font-semibold not-italic">📝 Feedback: </span>
+                  <MarkdownRenderer content={ans.feedback} inline />
+                </div>
               )}
             </div>
           ))}

@@ -25,8 +25,6 @@ import Create from "./pages/Create";
 import Summary from "./pages/Summary";
 import Notes from "./pages/Notes";
 import Quiz from "./pages/Quiz";
-import PracticePaper from "./pages/PracticePaper";
-import Viva, { VivaTranscriptPage } from "./pages/Viva";
 import Ask from "./pages/Ask";
 import History from "./pages/History";
 import Progress from "./pages/Progress";
@@ -39,8 +37,6 @@ const APP_ROUTES = [
   "/summary",
   "/notes",
   "/quiz",
-  "/practice-paper",
-  "/viva",
   "/ask",
   "/history",
   "/progress",
@@ -49,9 +45,7 @@ const APP_ROUTES = [
 
 function AppShell({ theme, onThemeToggle, onSetTheme }) {
   const location = useLocation();
-  const isFullscreen = ["/quiz", "/practice-paper", "/viva"].some((p) =>
-    location.pathname.startsWith(p),
-  );
+  const isFullscreen = location.pathname.startsWith("/quiz");
   const isApp = APP_ROUTES.some((r) => location.pathname.startsWith(r));
   const showNav = isApp && !isFullscreen;
 
@@ -90,15 +84,9 @@ function AppShell({ theme, onThemeToggle, onSetTheme }) {
           <Route path="/summary" element={<Summary theme={theme} />} />
           <Route path="/notes" element={<Notes theme={theme} />} />
           <Route path="/quiz" element={<Quiz theme={theme} />} />
-          <Route
-            path="/practice-paper"
-            element={<PracticePaper theme={theme} />}
-          />
-          <Route path="/viva" element={<Viva theme={theme} />} />
-          <Route
-            path="/viva/transcript"
-            element={<VivaTranscriptPage theme={theme} />}
-          />
+          <Route path="/practice-paper" element={<Navigate to="/create" replace />} />
+          <Route path="/viva" element={<Navigate to="/create" replace />} />
+          <Route path="/viva/transcript" element={<Navigate to="/create" replace />} />
           <Route path="/ask" element={<Ask theme={theme} />} />
           <Route path="/history" element={<History theme={theme} />} />
           <Route path="/progress" element={<Progress theme={theme} />} />

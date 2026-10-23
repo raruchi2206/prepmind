@@ -456,8 +456,8 @@ export default function Knowledge({ theme }) {
     const times = data?.processingTimes || {};
     return [
       ready?.metadata?.wordCount ? `${ready.metadata.wordCount.toLocaleString()} words` : null,
-      data?.chunkCount ? `${data.chunkCount} chunks` : null,
-      times.totalSeconds != null ? `processed in ${times.totalSeconds}s` : null,
+      ready?.metadata?.pageCount ? `${ready.metadata.pageCount} pages` : null,
+      times.totalSeconds != null ? `ready in ${times.totalSeconds}s` : null,
     ]
       .filter(Boolean)
       .join(" · ");
@@ -675,6 +675,9 @@ export default function Knowledge({ theme }) {
   };
 
   const handleDelete = async (id) => {
+    if (!window.confirm("Are you sure you want to remove this knowledge source?")) {
+      return;
+    }
     try {
       await knowledgeApi.delete(id);
       await loadKnowledge();
@@ -808,7 +811,7 @@ export default function Knowledge({ theme }) {
                 No knowledge sources yet
               </h3>
               <p className="mt-2 text-sm text-[var(--text-secondary)] max-w-md mx-auto">
-                Upload your first PDF, image, Word, PowerPoint, or text document, or import a YouTube video, to start generating quizzes, notes, summaries, and viva assessments.
+                Upload your first PDF, image, Word, PowerPoint, or text document, or import a YouTube video, to start generating summaries, notes, quizzes, and Q&A.
               </p>
               <button
                 onClick={() => fileRef.current?.click()}
@@ -820,24 +823,30 @@ export default function Knowledge({ theme }) {
           ) : (
             <div className="space-y-3">
               {items.map((knowledgeItem) => {
-                const chunkCount = knowledgeItem.metadata?.chunkCount ?? 0;
                 const pageCount = knowledgeItem.metadata?.pageCount ?? 0;
                 const wordCount = knowledgeItem.metadata?.wordCount ?? 0;
-
                 const isYouTube = knowledgeItem.type === "YOUTUBE";
                 const metaTokens = [];
+                metaTokens.push(isYouTube ? "YouTube Video" : `${knowledgeItem.type} Document`);
                 if (isYouTube) {
-                  metaTokens.push("YouTube");
-                  const lang = transcriptLanguageLabel(knowledgeItem.youtube);
-                  if (lang) metaTokens.push(lang);
                   const duration = formatDuration(knowledgeItem.youtube?.durationSeconds);
                   if (duration) metaTokens.push(duration);
+                } else if (pageCount > 0) {
+                  metaTokens.push(`${pageCount} pages`);
                 }
-                if (pageCount > 0) metaTokens.push(`${pageCount} pages`);
-                if (chunkCount > 0) metaTokens.push(`${chunkCount} chunks`);
-                if (wordCount > 0) metaTokens.push(`${wordCount.toLocaleString()} words`);
-                const metaText = metaTokens.length > 0 ? metaTokens.join(" · ") : knowledgeItem.type;
-                const label = statusLabel(knowledgeItem);
+                if (knowledgeItem.createdAt) {
+                  metaTokens.push(new Date(knowledgeItem.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }));
+                }
+                const metaText = metaTokens.join(" · ");
+
+                const isReady = knowledgeItem.status === "READY";
+                const isNeedsAttention = ["FAILED", "CANCELLED", "AWAITING_REVIEW"].includes(knowledgeItem.status);
+                const studentStatus = isReady
+                  ? { label: "Ready to study", tone: "ready" }
+                  : isNeedsAttention
+                  ? { label: "Needs attention", tone: "failed" }
+                  : { label: "Processing", tone: "neutral" };
+
                 const isActive = CANCELLABLE_STATUSES.includes(knowledgeItem.status);
                 const isCancelling = rowBusy[knowledgeItem.id] === "cancelling";
 
@@ -859,15 +868,14 @@ export default function Knowledge({ theme }) {
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      {knowledgeItem.status === "READY" ? (
+                      {isReady ? (
                         <>
                           <p className="text-sm text-[var(--text-secondary)]">
-                            {chunkCount > 0
-                              ? `${chunkCount} chunks indexed`
+                            {knowledgeItem.classification?.topic
+                              ? `Ready to study · ${knowledgeItem.classification.topic}`
                               : isYouTube
-                                ? "Transcript processed"
-                                : "Document processed"}
-                            {knowledgeItem.classification?.topic ? ` · ${knowledgeItem.classification.topic}` : ""}
+                              ? "Ready to study · Video tutorial"
+                              : "Ready to study · Document material"}
                           </p>
                           {knowledgeItem.errorMessage && (
                             <p className="mt-1 text-xs text-amber-400">{knowledgeItem.errorMessage}</p>
@@ -875,7 +883,7 @@ export default function Knowledge({ theme }) {
                         </>
                       ) : knowledgeItem.status === "FAILED" ? (
                         <p className="text-sm text-red-400">
-                          {knowledgeItem.errorMessage || "Processing failed"}
+                          {knowledgeItem.errorMessage || "Processing failed. Please retry."}
                         </p>
                       ) : knowledgeItem.status === "CANCELLED" ? (
                         <p className="text-sm text-[var(--text-secondary)]">
@@ -883,27 +891,18 @@ export default function Knowledge({ theme }) {
                         </p>
                       ) : knowledgeItem.status === "AWAITING_REVIEW" ? (
                         <p className="text-sm text-amber-400">
-                          {classificationLabels[knowledgeItem.classification?.label] || "Needs review"}:{" "}
-                          {knowledgeItem.classification?.reason || "Review this video before it is indexed."}
+                          Needs review: {knowledgeItem.classification?.reason || "Please review this video before studying."}
                         </p>
                       ) : (
                         <p className="text-sm text-[var(--accent)]">
-                          Status: {label.toLowerCase()}…
+                          Preparing study material…
                         </p>
                       )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-                      <span
-                        className={`status-pill ${
-                          knowledgeItem.status === "READY"
-                            ? "ready"
-                            : knowledgeItem.status === "FAILED"
-                              ? "failed"
-                              : "neutral"
-                        }`}
-                      >
-                        {label.toUpperCase()}
+                      <span className={`status-pill ${studentStatus.tone}`}>
+                        {studentStatus.label.toUpperCase()}
                       </span>
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
@@ -941,50 +940,19 @@ export default function Knowledge({ theme }) {
                               className="btn btn-ghost btn-sm font-mono text-[10px]"
                               title={
                                 isYouTube
-                                  ? "Fetch the transcript again and rebuild the index"
+                                  ? "Fetch the transcript again and rebuild the study material"
                                   : "Retry processing this document"
                               }
                             >
                               {isYouTube ? "Reprocess ↻" : "Retry ↻"}
                             </button>
                           )}
-                        {!isYouTube && knowledgeItem.status === "READY" && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const runId = startRun({
-                              title: knowledgeItem.title,
-                              status: "EMBEDDING",
-                              error: null,
-                              isComplete: false,
-                            });
-                            try {
-                              await knowledgeApi.reindex(knowledgeItem.id);
-                              updateRun(runId, (prev) => ({
-                                ...prev,
-                                status: "READY",
-                                isComplete: true,
-                              }));
-                              await loadKnowledge();
-                            } catch (err) {
-                              updateRun(runId, (prev) => ({
-                                ...prev,
-                                error: err.message || "Failed to re-index",
-                              }));
-                            }
-                          }}
-                          className="btn btn-ghost btn-sm font-mono text-[10px]"
-                          title="Re-index vectors into FAISS"
-                        >
-                          Re-index ↻
-                        </button>
-                        )}
-                        {knowledgeItem.status === "READY" && (
+                        {isReady && (
                           <Link
                             to={`/create?knowledge=${knowledgeItem.id}`}
                             className="btn btn-primary btn-sm"
                           >
-                            Create
+                            Study →
                           </Link>
                         )}
                         <button
@@ -1092,7 +1060,7 @@ export function KnowledgeDetail({ theme }) {
                 <FileTypeIcon type={source.type} />
                 <span className="font-mono text-[0.58rem] uppercase tracking-[0.14em] text-[var(--text-secondary)]">
                   {pageCount > 0 ? `${pageCount} pages · ` : ""}
-                  {chunkCount} chunks indexed
+                  Ready to study
                 </span>
               </div>
               <h1 className="mt-4 font-display text-4xl text-[var(--text-primary)]">
@@ -1130,15 +1098,16 @@ export function KnowledgeDetail({ theme }) {
             <p className="section-label">Document Overview</p>
             <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
               {[
-                { value: chunkCount.toString(), label: "Chunks Indexed" },
-                source.type === "YOUTUBE"
-                  ? {
-                      value: transcriptLanguageLabel(source.youtube) || "—",
-                      label: "Transcript Language",
-                    }
-                  : { value: pageCount > 0 ? pageCount.toString() : "—", label: "Pages" },
+                { value: source.status === "READY" ? "Ready" : "Processing", label: "Readiness" },
+                {
+                  value: source.type === "YOUTUBE" ? "YouTube" : source.type,
+                  label: "Source Type",
+                },
+                {
+                  value: source.createdAt ? new Date(source.createdAt).toLocaleDateString() : "—",
+                  label: "Added Date",
+                },
                 { value: wordCount > 0 ? wordCount.toLocaleString() : "—", label: "Words" },
-                { value: source.status, label: "Status" },
               ].map((stat) => (
                 <div
                   key={stat.label}
@@ -1177,7 +1146,7 @@ export function KnowledgeDetail({ theme }) {
 
           {chunks.length > 0 && (
             <div className="mt-8 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-5">
-              <p className="section-label">Indexed chunks ({chunks.length})</p>
+              <p className="section-label">Source excerpts ({chunks.length})</p>
               <div className="mt-4 max-h-96 space-y-3 overflow-y-auto pr-1">
                 {chunks.map((c, idx) => (
                   <div
@@ -1185,7 +1154,7 @@ export function KnowledgeDetail({ theme }) {
                     className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-xs"
                   >
                     <div className="mb-1 flex items-center justify-between font-mono text-[10px] text-[var(--accent)]">
-                      <span>Chunk #{c.chunkIndex + 1}</span>
+                      <span>Excerpt #{c.chunkIndex + 1}</span>
                       {c.metadata?.startTime != null ? (
                         <span className="font-semibold text-amber-500">{c.metadata.section}</span>
                       ) : c.metadata?.page ? (

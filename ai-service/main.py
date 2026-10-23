@@ -149,21 +149,19 @@ class EvaluateRequest(BaseModel):
 async def health_check():
     health = await llm_service.check_health()
     embedding = embedding_service.health_info()
-    provider = health.get("provider", llm_service.provider)
+    groq_info = health.get("groq", {})
+    ollama_info = health.get("ollama", {})
     return {
-        "status": "ok" if health.get("available") else "degraded",
+        "status": health.get("status", "ok"),
         "service": "prepmind-ai-service",
-        "primaryProvider": llm_service.provider,
-        "fallbackProvider": "ollama" if llm_service.provider == "groq" else "none",
-        "activeProvider": provider if health.get("available") else "none",
-        "groq": {
-            "available": provider == "groq" and bool(health.get("available")),
-            "model": llm_service.model if provider == "groq" else None,
-            **({"error": health.get("error")} if provider == "groq" and health.get("error") else {}),
-        },
-        "embedding": {**embedding, "active_embedding": embedding["model"]},
-        # Kept under the historical "ollama" key for existing clients
-        "ollama": health,
+        "primaryProvider": "groq",
+        "fallbackProvider": "ollama",
+        "activeProvider": health.get("activeProvider", "groq"),
+        "lastSuccessfulProvider": llm_service.last_successful_provider,
+        "available": bool(health.get("available")),
+        "groq": groq_info,
+        "ollama": ollama_info,
+        "embedding": {**embedding, "active_embedding": embedding.get("model", "all-minilm"), "dimension": 384},
         "embeddingDimension": 384,
         "threshold": settings.RAG_SIMILARITY_THRESHOLD,
         "topK": settings.TOP_K,
@@ -172,6 +170,11 @@ async def health_check():
             "status": "active"
         }
     }
+
+@app.get("/ai/diagnostic")
+async def ai_diagnostic_endpoint():
+    diagnostic = await llm_service.get_diagnostic()
+    return {"success": True, "data": diagnostic}
 
 @app.get("/user-stats/{user_id}")
 async def get_user_stats(user_id: str):

@@ -1,7 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { KnowledgeSignal } from "../components/KnowledgeSignal";
+import MarkdownRenderer from "../components/MarkdownRenderer";
 import { ragApi, knowledgeApi } from "../services/api";
+import { generateVivaResultPDF } from "../utils/pdfGenerator";
 
 function VivaSetup({ theme, sources, onStart, loading, error }) {
   const [searchParams] = useSearchParams();
@@ -136,7 +138,10 @@ function VivaRoom({ assessment, theme, onFinish }) {
   const [evalResult, setEvalResult] = useState(null);
   const [completedAnswers, setCompletedAnswers] = useState([]);
   const [isListening, setIsListening] = useState(false);
+  const [micError, setMicError] = useState("");
+  const [timeLeft, setTimeLeft] = useState(90);
 
+  const committedAnswerRef = useRef("");
   const questions = assessment.questions || [];
   const currentQ = questions[qIndex] || {};
 
@@ -145,34 +150,106 @@ function VivaRoom({ assessment, theme, onFinish }) {
     ? "border-[rgba(65,45,21,0.1)]"
     : "border-[rgba(225,220,201,0.08)]";
 
-  // Speech Recognition hook
+  // Reset per question
+  useEffect(() => {
+    committedAnswerRef.current = "";
+    setAnswer("");
+    setEvalResult(null);
+    setMicError("");
+    setTimeLeft(90);
+    setIsListening(false);
+  }, [qIndex]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (evalResult !== null || evaluating) return;
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [qIndex, evalResult, evaluating]);
+
+  // Speech Recognition hook with deduplication and error handling
   useEffect(() => {
     let recognition = null;
-    if (isListening && ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
+    const hasSpeech = "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
 
-      recognition.onresult = (event) => {
-        let transcript = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
-        }
-        setAnswer((prev) => (prev ? `${prev} ${transcript}` : transcript));
-      };
+    if (isListening) {
+      if (!hasSpeech) {
+        setMicError("Speech recognition is not supported in this browser. Please type your response.");
+        setIsListening(false);
+        return;
+      }
 
-      recognition.onerror = () => setIsListening(false);
-      recognition.onend = () => setIsListening(false);
-      recognition.start();
+      try {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = "en-US";
+
+        recognition.onstart = () => {
+          setMicError("");
+        };
+
+        recognition.onresult = (event) => {
+          let interimTranscript = "";
+          let finalChunk = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const piece = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalChunk += piece;
+            } else {
+              interimTranscript += piece;
+            }
+          }
+          if (finalChunk) {
+            committedAnswerRef.current = committedAnswerRef.current
+              ? `${committedAnswerRef.current} ${finalChunk.trim()}`
+              : finalChunk.trim();
+          }
+          const full = [committedAnswerRef.current, interimTranscript.trim()]
+            .filter(Boolean)
+            .join(" ");
+          setAnswer(full);
+        };
+
+        recognition.onerror = (e) => {
+          console.warn("Speech recognition error:", e.error);
+          if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+            setMicError("Microphone access blocked. You can type your response below.");
+          } else if (e.error !== "no-speech") {
+            setMicError(`Microphone notice: ${e.error}. You can type directly.`);
+          }
+          setIsListening(false);
+        };
+
+        recognition.onend = () => {
+          setIsListening(false);
+        };
+
+        recognition.start();
+      } catch (err) {
+        console.warn("Speech recognition init failed:", err);
+        setMicError("Microphone could not be initialized. Please type your answer.");
+        setIsListening(false);
+      }
     }
+
     return () => {
-      if (recognition) recognition.stop();
+      if (recognition) {
+        try {
+          recognition.stop();
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
     };
   }, [isListening]);
 
   const handleSubmitAnswer = async () => {
     if (!answer.trim()) return;
+    if (isListening) setIsListening(false);
     setEvaluating(true);
     try {
       const res = await ragApi.evaluateViva({
@@ -216,6 +293,8 @@ function VivaRoom({ assessment, theme, onFinish }) {
     }
   };
 
+  const formatSecs = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
   return (
     <div
       className="min-h-screen flex flex-col page-shell"
@@ -233,6 +312,9 @@ function VivaRoom({ assessment, theme, onFinish }) {
           PREPMIND AI VIVA EXAMINER
         </span>
         <div className="flex items-center gap-4">
+          <span className={`font-mono text-xs ${timeLeft <= 15 ? "text-amber-500 font-bold" : "opacity-60"}`}>
+            ⏱ {formatSecs(timeLeft)}
+          </span>
           <span className="font-mono text-xs opacity-60">
             QUESTION {qIndex + 1} OF {questions.length}
           </span>
@@ -244,29 +326,39 @@ function VivaRoom({ assessment, theme, onFinish }) {
         <div className="relative">
           <KnowledgeSignal size={80} animated light={light} />
           {isListening && (
-            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[10px] font-mono text-red-500 animate-pulse">
-              ● Recording...
+            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[10px] font-mono text-red-500 animate-pulse whitespace-nowrap">
+              ● Recording Audio...
             </div>
           )}
         </div>
+
+        {/* Mic Error Notice */}
+        {micError && (
+          <div className="w-full text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-center">
+            {micError}
+          </div>
+        )}
 
         {/* Question */}
         <div className="text-center w-full">
           <p className="font-mono text-[10px] tracking-widest mb-2 text-[var(--text-secondary)]">
             AI EXAMINER PROMPT
           </p>
-          <h2 className="font-display text-2xl font-light leading-relaxed text-[var(--text-primary)]">
-            "{currentQ.question}"
-          </h2>
+          <div className="font-display text-2xl font-light leading-relaxed text-[var(--text-primary)]">
+            <MarkdownRenderer content={currentQ.question || ""} />
+          </div>
         </div>
 
         {/* Answer input */}
         <textarea
           id="viva-answer-input"
           value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
+          onChange={(e) => {
+            setAnswer(e.target.value);
+            committedAnswerRef.current = e.target.value;
+          }}
           rows={4}
-          placeholder="Speak or type your academic oral response here..."
+          placeholder="Speak using microphone or type your academic oral response here..."
           disabled={evaluating || evalResult !== null}
           className={`w-full bg-[var(--surface-elevated)] border rounded-2xl px-4 py-3 text-sm text-[var(--text-primary)] resize-none focus:outline-none focus:ring-1 focus:ring-[var(--ring)] ${border}`}
         />
@@ -282,9 +374,9 @@ function VivaRoom({ assessment, theme, onFinish }) {
                 AI Evaluator
               </span>
             </div>
-            <p className="text-xs text-[var(--text-primary)] leading-relaxed">
-              💡 {evalResult.feedback}
-            </p>
+            <div className="text-xs text-[var(--text-primary)] leading-relaxed">
+              <MarkdownRenderer content={`💡 ${evalResult.feedback}`} />
+            </div>
             {evalResult.strengths?.length > 0 && (
               <p className="text-[11px] text-emerald-400">
                 ✓ Strengths: {evalResult.strengths.join(", ")}
@@ -336,7 +428,7 @@ function VivaRoom({ assessment, theme, onFinish }) {
   );
 }
 
-function VivaResult({ assessment, results, theme, onReset }) {
+function VivaResult({ assessment, results, sourceTitle, theme, onReset }) {
   const light = theme === "light";
   const border = light
     ? "border-[rgba(65,45,21,0.1)]"
@@ -365,6 +457,16 @@ function VivaResult({ assessment, results, theme, onReset }) {
           </p>
         </div>
 
+        <div className="flex justify-center gap-3 mb-8">
+          <button
+            id="download-viva-pdf-result"
+            onClick={() => generateVivaResultPDF(assessment, results, sourceTitle)}
+            className="btn btn-primary cursor-pointer flex items-center gap-2"
+          >
+            📥 Download Viva Report PDF
+          </button>
+        </div>
+
         <div className="space-y-4 mb-8">
           <h3 className="section-label">Oral Transcript & Feedback</h3>
           {results.map((r, i) => (
@@ -377,16 +479,17 @@ function VivaResult({ assessment, results, theme, onReset }) {
                   {r.evaluation?.awardedMarks || 7} / 10
                 </span>
               </div>
-              <p className="text-sm font-medium text-[var(--text-primary)]">
-                "{r.question}"
-              </p>
+              <div className="text-sm font-medium text-[var(--text-primary)]">
+                <MarkdownRenderer content={r.question} />
+              </div>
               <p className="text-xs text-[var(--text-secondary)] bg-[var(--surface-elevated)] p-3 rounded-xl">
                 <strong>Your Oral Response:</strong> {r.userAnswer || "(No response)"}
               </p>
               {r.evaluation?.feedback && (
-                <p className="text-xs text-[var(--text-primary)] italic pt-1">
-                  📝 Examiner Feedback: {r.evaluation.feedback}
-                </p>
+                <div className="text-xs text-[var(--text-primary)] italic pt-1">
+                  <span className="font-semibold not-italic">📝 Examiner Feedback: </span>
+                  <MarkdownRenderer content={r.evaluation.feedback} inline />
+                </div>
               )}
             </div>
           ))}
@@ -471,6 +574,10 @@ export default function Viva({ theme }) {
     }
   };
 
+  const currentSourceTitle =
+    sources.find((s) => s.id === assessment?.knowledgeSourceIds?.[0])?.title ||
+    "Knowledge Source";
+
   if (phase === "setup") {
     return (
       <VivaSetup
@@ -498,6 +605,7 @@ export default function Viva({ theme }) {
       <VivaResult
         assessment={assessment}
         results={results}
+        sourceTitle={currentSourceTitle}
         theme={theme}
         onReset={() => {
           setAssessment(null);

@@ -73,19 +73,40 @@ async function verifyAndGetSources(userId, sourceIds, requireExplicit = true) {
   return sources;
 }
 
-// Whole-source outputs need every chunk in document order, not just the top search hits
-const MAX_DOCUMENT_CHUNKS = parseInt(process.env.MAX_DOCUMENT_CHUNKS || "2000", 10);
+// Bounded whole-source chunks: 45 chunks (~30,000 chars) fits inside the single-pass budget
+const MAX_DOCUMENT_CHUNKS = parseInt(process.env.MAX_DOCUMENT_CHUNKS || "45", 10);
 
-async function loadAllSourceChunks(userId, sources) {
+function sampleRepresentativeChunks(chunks, maxCount) {
+  if (chunks.length <= maxCount) return chunks;
+  // Include intro and conclusion chunks, plus evenly spaced body chunks
+  const introCount = Math.min(5, Math.floor(maxCount / 4));
+  const outroCount = Math.min(5, Math.floor(maxCount / 4));
+  const middleBudget = maxCount - introCount - outroCount;
+
+  const intro = chunks.slice(0, introCount);
+  const outro = chunks.slice(-outroCount);
+  const middlePool = chunks.slice(introCount, -outroCount);
+
+  const step = middlePool.length / middleBudget;
+  const middle = [];
+  for (let i = 0; i < middleBudget; i++) {
+    const idx = Math.floor(i * step);
+    if (middlePool[idx]) middle.push(middlePool[idx]);
+  }
+
+  return [...intro, ...middle, ...outro];
+}
+
+async function loadAllSourceChunks(userId, sources, maxChunks = MAX_DOCUMENT_CHUNKS) {
   const sourceTitleMap = new Map(sources.map((s) => [s._id.toString(), s.title]));
-  const chunks = await KnowledgeChunk.find({
+  const allChunks = await KnowledgeChunk.find({
     userId,
     knowledgeSourceId: { $in: sources.map((s) => s._id) },
   })
     .sort({ knowledgeSourceId: 1, chunkIndex: 1 })
-    .limit(MAX_DOCUMENT_CHUNKS);
+    .limit(2000);
 
-  if (chunks.length === 0) {
+  if (allChunks.length === 0) {
     throw createHttpError(
       400,
       "This source has no indexed content. Open the Knowledge page and reprocess it, then try again.",
@@ -93,7 +114,9 @@ async function loadAllSourceChunks(userId, sources) {
     );
   }
 
-  return chunks.map((mc) => ({
+  const selectedChunks = sampleRepresentativeChunks(allChunks, maxChunks);
+
+  return selectedChunks.map((mc) => ({
     chunkId: mc._id.toString(),
     knowledgeSourceId: mc.knowledgeSourceId.toString(),
     sourceTitle: sourceTitleMap.get(mc.knowledgeSourceId.toString()) || "Knowledge Source",
@@ -125,27 +148,6 @@ async function retrieveRelevantChunks({
     sources.map((s) => [s._id.toString(), s.title]),
   );
 
-  // Auto-heal check: ensure documents with MongoDB chunks are indexed in FAISS
-  try {
-    const userStats = await aiServiceClient.getUserStats(userId);
-    if (!userStats || userStats.vectorCount === 0) {
-      for (const source of sources) {
-        const chunksToSync = await KnowledgeChunk.find({
-          knowledgeSourceId: source._id,
-          userId,
-        });
-        if (chunksToSync.length > 0) {
-          console.log(
-            `[RAG Auto-Sync] Indexing ${chunksToSync.length} chunks for source ${source._id} into FAISS`,
-          );
-          await aiServiceClient.indexChunks(userId, source._id, chunksToSync);
-        }
-      }
-    }
-  } catch (syncErr) {
-    console.warn(`[RAG Auto-Sync] Sync check error: ${syncErr.message}`);
-  }
-
   // 1. Vector similarity search in FAISS
   let matches = [];
   try {
@@ -157,8 +159,37 @@ async function retrieveRelevantChunks({
     );
   } catch (err) {
     console.warn(
-      `[RAG] Vector search error, fallback to source chunks: ${err.message}`,
+      `[RAG] Vector search error: ${err.message}`,
     );
+  }
+
+  // If no matches found, check if sources need initial indexing into FAISS
+  if (matches.length === 0) {
+    try {
+      const userStats = await aiServiceClient.getUserStats(userId);
+      if (!userStats || userStats.vectorCount === 0) {
+        for (const source of sources) {
+          const chunksToSync = await KnowledgeChunk.find({
+            knowledgeSourceId: source._id,
+            userId,
+          });
+          if (chunksToSync.length > 0) {
+            console.log(
+              `[RAG Auto-Sync] Indexing ${chunksToSync.length} chunks for source ${source._id} into FAISS`,
+            );
+            await aiServiceClient.indexChunks(userId, source._id, chunksToSync);
+          }
+        }
+        matches = await aiServiceClient.searchVectors(
+          userId,
+          query,
+          validSourceIds,
+          topK,
+        );
+      }
+    } catch (syncErr) {
+      console.warn(`[RAG Auto-Sync] Sync check error: ${syncErr.message}`);
+    }
   }
 
   let finalChunks = [];
@@ -330,6 +361,7 @@ async function generateSummary({
   userId,
   knowledgeSourceIds,
   regenerate = false,
+  signal = null,
 }) {
   const startedAt = Date.now();
   const sources = await verifyAndGetSources(userId, knowledgeSourceIds);
@@ -354,7 +386,7 @@ async function generateSummary({
   }
 
   const chunks = await loadAllSourceChunks(userId, sources);
-  const aiResult = await aiServiceClient.generateSummary(chunks, sourceTitle);
+  const aiResult = await aiServiceClient.generateSummary(chunks, sourceTitle, { signal });
 
   const doc = await GeneratedContent.create({
     userId,
@@ -388,6 +420,7 @@ async function generateNotes({
   userId,
   knowledgeSourceIds,
   regenerate = false,
+  signal = null,
 }) {
   const startedAt = Date.now();
   const sources = await verifyAndGetSources(userId, knowledgeSourceIds);
@@ -412,7 +445,7 @@ async function generateNotes({
   }
 
   const chunks = await loadAllSourceChunks(userId, sources);
-  const aiResult = await aiServiceClient.generateNotes(chunks, sourceTitle);
+  const aiResult = await aiServiceClient.generateNotes(chunks, sourceTitle, { signal });
 
   const doc = await GeneratedContent.create({
     userId,

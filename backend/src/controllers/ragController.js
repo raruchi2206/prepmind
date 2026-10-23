@@ -66,6 +66,7 @@ async function generateSummary(req, res, next) {
         ? knowledgeSourceIds
         : [knowledgeSourceIds].filter(Boolean),
       regenerate: Boolean(regenerate),
+      signal: req.signal,
     });
 
     res.status(201).json({
@@ -87,6 +88,7 @@ async function generateNotes(req, res, next) {
         ? knowledgeSourceIds
         : [knowledgeSourceIds].filter(Boolean),
       regenerate: Boolean(regenerate),
+      signal: req.signal,
     });
 
     res.status(201).json({

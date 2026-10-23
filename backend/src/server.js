@@ -19,6 +19,9 @@ async function start() {
     console.log(`[AI SERVICE] URL configured: ${aiServiceUrl}`);
     console.log(`[DB STATUS] MongoDB: ${isDatabaseConnected() ? "CONNECTED" : "UNAVAILABLE"}`);
   });
+  server.timeout = 600000;
+  server.headersTimeout = 605000;
+  server.keepAliveTimeout = 120000;
 
   const shutdown = async (signal) => {
     console.log(`${signal} received, shutting down`);

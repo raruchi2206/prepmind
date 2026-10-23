@@ -6,6 +6,8 @@ import {
   generateQuizQuestionPDF,
   generateQuizResultPDF,
 } from "../utils/pdfGenerator";
+import { MarkdownRenderer } from "../components/MarkdownRenderer";
+import { getRemainingTimeEstimate } from "../utils/estimatedTime";
 
 function QuizSetup({ theme, sources, onGenerate, loading, error }) {
   const [searchParams] = useSearchParams();
@@ -17,6 +19,20 @@ function QuizSetup({ theme, sources, onGenerate, loading, error }) {
   const [count, setCount] = useState(5);
   const [difficulty, setDifficulty] = useState("Medium");
   const [qType, setQType] = useState("MCQ");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    let t = null;
+    if (loading) {
+      setElapsedSeconds(0);
+      t = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+    } else {
+      setElapsedSeconds(0);
+    }
+    return () => {
+      if (t) clearInterval(t);
+    };
+  }, [loading]);
 
   useEffect(() => {
     if (sources.length > 0 && !selectedKs) {
@@ -69,8 +85,7 @@ function QuizSetup({ theme, sources, onGenerate, loading, error }) {
                 >
                   {sources.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.title} ({s.type} · {s.metadata?.chunkCount || 0}{" "}
-                      chunks)
+                      {s.title} ({s.type === "YOUTUBE" ? "YouTube" : s.type})
                     </option>
                   ))}
                 </select>
@@ -153,6 +168,18 @@ function QuizSetup({ theme, sources, onGenerate, loading, error }) {
             >
               {loading ? "Generating Quiz via RAG..." : "CREATE QUIZ →"}
             </button>
+
+            {loading && (
+              <div className="mt-4 p-4 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] text-center flex flex-col items-center gap-1.5">
+                <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-1.5 font-mono text-xs font-semibold text-[var(--accent)] shadow-sm">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                  {getRemainingTimeEstimate({ kind: "QUIZ", elapsedSeconds, itemCount: count }).primary}
+                </span>
+                <span className="text-[11px] font-mono text-[var(--text-secondary)] opacity-80">
+                  {getRemainingTimeEstimate({ kind: "QUIZ", elapsedSeconds, itemCount: count }).secondary}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -373,9 +400,9 @@ function QuizExperience({ assessment, theme, onSubmit, submitting }) {
             )}
           </div>
 
-          <p className="font-display text-xl font-light mb-6 leading-relaxed text-[var(--text-primary)]">
-            {q.question}
-          </p>
+          <div className="font-display text-xl font-light mb-6 leading-relaxed text-[var(--text-primary)]">
+            <MarkdownRenderer content={q.question} />
+          </div>
 
           <div className="space-y-3">
             {(q.options || []).map((opt, i) => {
@@ -405,9 +432,9 @@ function QuizExperience({ assessment, theme, onSubmit, submitting }) {
                   <span className="font-mono text-xs flex-shrink-0 mt-0.5 opacity-60">
                     {labels[i] || "·"}
                   </span>
-                  <span className="text-sm font-body leading-relaxed text-[var(--text-primary)]">
-                    {opt}
-                  </span>
+                  <div className="text-sm font-body leading-relaxed text-[var(--text-primary)] flex-1">
+                    <MarkdownRenderer content={opt} />
+                  </div>
                 </button>
               );
             })}
@@ -428,9 +455,9 @@ function QuizExperience({ assessment, theme, onSubmit, submitting }) {
                 </p>
               )}
               {q.explanation && (
-                <p className="text-[var(--text-secondary)] italic">
-                  💡 {q.explanation}
-                </p>
+                <div className="text-[var(--text-secondary)] italic mt-1">
+                  💡 <MarkdownRenderer content={q.explanation} className="inline-block" />
+                </div>
               )}
             </div>
           )}
@@ -572,11 +599,12 @@ function QuizResult({
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3 mb-2">
-                    <p className="text-sm font-medium text-[var(--text-primary)]">
-                      {idx + 1}. {q.question}
-                    </p>
+                    <div className="text-sm font-medium text-[var(--text-primary)] flex-1">
+                      <span className="font-mono text-xs opacity-60 mr-1.5">{idx + 1}.</span>
+                      <MarkdownRenderer content={q.question} className="inline-block" />
+                    </div>
                     <span
-                      className={`px-2 py-0.5 text-[10px] font-mono rounded-md ${
+                      className={`px-2 py-0.5 text-[10px] font-mono rounded-md flex-shrink-0 ${
                         isCorrect
                           ? "bg-emerald-500/20 text-emerald-400"
                           : hasAnswered
@@ -601,9 +629,9 @@ function QuizResult({
                     </p>
                   )}
                   {q.explanation && (
-                    <p className="text-xs text-[var(--text-secondary)] mt-2 pt-2 border-t border-[var(--border)] italic">
-                      💡 Explanation: {q.explanation}
-                    </p>
+                    <div className="text-xs text-[var(--text-secondary)] mt-2 pt-2 border-t border-[var(--border)] italic">
+                      💡 <strong>Explanation:</strong> <MarkdownRenderer content={q.explanation} className="mt-1" />
+                    </div>
                   )}
                 </div>
               );

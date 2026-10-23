@@ -4,7 +4,7 @@ import { KnowledgeSignal } from "../components/KnowledgeSignal";
 
 function HeroSignal() {
   const sources = ["PDF", "PPT", "DOCX", "YouTube"];
-  const outputs = ["SUMMARY", "NOTES", "QUIZ", "PAPER", "VIVA"];
+  const outputs = ["SUMMARY", "NOTES", "QUIZ", "ASK"];
   return (
     <div
       className="relative flex items-center justify-center"
@@ -142,8 +142,8 @@ export default function Landing() {
           </p>
           <p className="hero-description mt-6">
             Upload your study material or educational videos and let PrepMind
-            turn them into summaries, notes, quizzes, practice papers and
-            AI-powered viva sessions.
+            turn them into revision summaries, structured study notes, targeted quizzes,
+            and conversational Q&A.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link
@@ -257,8 +257,6 @@ export default function Landing() {
                     },
                     { label: "Notes", sub: "Structured revision material" },
                     { label: "Quiz", sub: "Check recall and understanding" },
-                    { label: "Practice paper", sub: "Exam-style preparation" },
-                    { label: "Viva", sub: "Oral concept practice" },
                     { label: "Ask", sub: "Get grounded answers" },
                   ].map((item, i) => (
                     <div
@@ -306,7 +304,7 @@ export default function Landing() {
                 Turn educational videos into structured study material. PrepMind
                 extracts the transcript, identifies key topics, and builds a
                 rich knowledge base — ready for summaries, notes, quizzes, and
-                viva sessions.
+                conversational Q&A.
               </p>
               <div className="mt-8 rounded-2xl border border-[rgba(225,220,201,0.10)] bg-[rgba(225,220,201,0.03)] p-4">
                 <p className="kicker">YouTube URL</p>
@@ -350,7 +348,7 @@ export default function Landing() {
                 {
                   step: "04",
                   label: "Preparation",
-                  sub: "Summary, notes, quiz, viva",
+                  sub: "Summary, notes, quiz, ask",
                 },
               ].map((item, i) => (
                 <div
@@ -488,16 +486,6 @@ export default function Landing() {
                 label: "QUIZ",
                 desc: "MCQ, multi-select, adaptive difficulty — tested and evaluated.",
                 icon: "?",
-              },
-              {
-                label: "PRACTICE PAPER",
-                desc: "Full practice papers with sections, marks and AI evaluation.",
-                icon: "◻",
-              },
-              {
-                label: "VIVA",
-                desc: "AI-driven oral examination with transcript and scoring.",
-                icon: "◈",
               },
               {
                 label: "ASK PREPMIND",

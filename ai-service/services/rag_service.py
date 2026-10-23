@@ -9,6 +9,7 @@ import time
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from services.llm_service import llm_service
+from config.settings import settings
 
 logger = logging.getLogger("rag_service")
 
@@ -501,14 +502,16 @@ When stating a point, append the timestamp where it is discussed, e.g. [04:12]. 
 
 def format_context_chunks(
     chunks: List[Dict[str, Any]],
-    max_chunks: int = 4,
-    max_chars_per_chunk: int = 800,
+    max_chunks: Optional[int] = None,
+    max_chars_per_chunk: Optional[int] = None,
 ) -> str:
+    limit_chunks = max_chunks if max_chunks is not None else settings.RAG_MAX_CHUNKS
+    limit_chars = max_chars_per_chunk if max_chars_per_chunk is not None else settings.RAG_MAX_CHARS_PER_CHUNK
     if not chunks:
         return "No relevant context found."
     
     formatted = []
-    for i, c in enumerate(chunks[:max_chunks], 1):
+    for i, c in enumerate(chunks[:limit_chunks], 1):
         meta = c.get("metadata", {})
         doc_title = meta.get("originalFileName") or c.get("sourceTitle") or f"Document {c.get('knowledgeSourceId', '')}"
         page_str = f", Page {meta.get('page')}" if meta.get("page") is not None else ""
@@ -518,7 +521,7 @@ def format_context_chunks(
         time_str = f", Time {time_range}" if time_range else ""
 
         tag = f"[{doc_title}{page_str}{slide_str}{sec_str}{time_str}]"
-        text = c.get("text", "").strip()[:max_chars_per_chunk]
+        text = c.get("text", "").strip()[:limit_chars]
         formatted.append(f"--- SOURCE CONTEXT {i} {tag} ---\n{text}")
     
     return "\n\n".join(formatted)
@@ -756,31 +759,22 @@ def safe_parse_json(text: str) -> Dict[str, Any]:
 
 def clean_academic_notes(text: str) -> str:
     """
-    Remove raw markdown symbols (##, ###, **, *, `, ---),
-    and decorative AI emojis, keeping clean university lecture notes style.
+    Cleans AI artifacts (excessive newlines, decorative emojis)
+    while preserving markdown structure (headings, bold, lists, code, LaTeX math).
     """
     if not text:
         return ""
-    # Strip markdown headers (e.g. ## 1. Introduction -> 1. Introduction)
-    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
-    # Strip bold / italic asterisks
-    text = re.sub(r"\*{1,3}(.*?)\*{1,3}", r"\1", text)
-    # Strip markdown horizontal rules
-    text = re.sub(r"^[-=_]{3,}\s*$", "", text, flags=re.MULTILINE)
-    # Strip backticks
-    text = text.replace("`", "")
-    # Remove common emoji symbols safely without affecting letters or digits
+    # Remove decorative emojis safely without affecting math symbols or letters
     text = re.sub(r"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF]", "", text)
-    # Normalize excessive blank lines
+    # Normalize excessive blank lines (3 or more -> 2)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return text
 
 # Whole-document outputs (summary, notes) cover every chunk. Sources that fit in one
 # request are sent directly; longer ones are condensed section by section first.
-SINGLE_PASS_CHAR_BUDGET = int(os.getenv("SINGLE_PASS_CHAR_BUDGET", "24000"))
-SECTION_CHAR_BUDGET = int(os.getenv("SECTION_CHAR_BUDGET", "12000"))
-# Sequential by default: the Groq free tier allows ~8k tokens/minute
-SECTION_CONCURRENCY = int(os.getenv("SECTION_CONCURRENCY", "1"))
+SINGLE_PASS_CHAR_BUDGET = int(os.getenv("SINGLE_PASS_CHAR_BUDGET", "32000"))
+SECTION_CHAR_BUDGET = int(os.getenv("SECTION_CHAR_BUDGET", "18000"))
+SECTION_CONCURRENCY = int(os.getenv("SECTION_CONCURRENCY", "3"))
 MIN_OUTPUT_CHARS = 200
 
 SECTION_DIGEST_PROMPT = """SOURCE: {title}
@@ -824,7 +818,7 @@ def validate_document_output(text: str, kind: str) -> str:
 
 class RAGService:
     async def build_document_context(self, chunks: List[Dict[str, Any]], title: str) -> Dict[str, Any]:
-        """Returns the context for a whole-source output, condensing long sources first."""
+        """Returns the context for a whole-source output, condensing long sources into at most 3 sections."""
         ordered = order_chunks(chunks)
         full_context = format_context_chunks(ordered, max_chunks=len(ordered), max_chars_per_chunk=100000)
         if len(full_context) <= SINGLE_PASS_CHAR_BUDGET:
@@ -832,8 +826,23 @@ class RAGService:
 
         timestamp_note = TIMESTAMP_INSTRUCTION if chunks_have_timestamps(ordered) else ""
         sections = split_into_sections(ordered, SECTION_CHAR_BUDGET)
-        logger.info(f"[RAG] Long source: condensing {len(ordered)} chunks in {len(sections)} sections")
-        semaphore = asyncio.Semaphore(SECTION_CONCURRENCY)
+        # Bounded section-level summary: cap at at most 3 sections to guarantee speed
+        if len(sections) > 3:
+            k, m = divmod(len(sections), 3)
+            merged_sections = []
+            start = 0
+            for i in range(3):
+                end = start + k + (1 if i < m else 0)
+                group = []
+                for s in sections[start:end]:
+                    group.extend(s)
+                merged_sections.append(group)
+                start = end
+            sections = merged_sections
+
+        concurrency = 1 if (llm_service.is_groq_rate_limited() or llm_service.last_successful_provider == "ollama") else SECTION_CONCURRENCY
+        logger.info(f"[RAG] Condensing {len(ordered)} chunks in {len(sections)} sections (concurrency: {concurrency})")
+        semaphore = asyncio.Semaphore(concurrency)
 
         async def digest(index: int, section: List[Dict[str, Any]]) -> str:
             section_context = format_context_chunks(section, max_chunks=len(section), max_chars_per_chunk=100000)
@@ -845,25 +854,17 @@ class RAGService:
                 timestamp_note=timestamp_note,
             )
             async with semaphore:
-                text = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.1, max_tokens=900)
+                text = await llm_service.generate(
+                    prompt=prompt,
+                    system=SYSTEM_PROMPT_BASE,
+                    temperature=0.1,
+                    max_tokens=600,
+                    debug_label=f"digest-{index}",
+                )
             return f"--- PART {index} OF {len(sections)} ---\n{text.strip()}"
 
         digests = await asyncio.gather(*(digest(i, sec) for i, sec in enumerate(sections, 1)))
         combined = "\n\n".join(digests)
-
-        # Very long sources: condense the digests again until they fit in one request
-        while len(combined) > SINGLE_PASS_CHAR_BUDGET:
-            pseudo_chunks = [
-                {"text": d, "chunkIndex": i, "sourceTitle": title, "metadata": {}}
-                for i, d in enumerate(digests)
-            ]
-            groups = split_into_sections(pseudo_chunks, SECTION_CHAR_BUDGET)
-            if len(groups) >= len(digests):
-                break
-            digests = await asyncio.gather(*(
-                digest(i, group) for i, group in enumerate(groups, 1)
-            ))
-            combined = "\n\n".join(digests)
 
         return {"context": combined, "condensed": True, "sections": len(sections)}
 
@@ -903,10 +904,21 @@ RETRIEVED KNOWLEDGE CONTEXT:
 {context_str}
 {timestamp_note}
 
-Provide a well-structured, comprehensive, and grounded answer to the user's question using the context above. If the context does not contain enough information, state that clearly."""
+Provide a direct, well-structured, and source-grounded answer to the user's question using the context above.
+- Answer directly and concisely by default, focusing on key facts and actionable explanations.
+- Use clean Markdown formatting: headings (##, ###), bullet lists, bold emphasis (**concept**), and code blocks where applicable.
+- For mathematical expressions or equations, use standard LaTeX notation: inline like $f(n) = O(1)$ and block equations like $$E = mc^2$$.
+- When citing facts from the source, include the timestamp tag [MM:SS] or page number if available.
+- If the context does not contain enough information to answer, state clearly: "I couldn't find enough information in your uploaded knowledge to answer this question." Do not fabricate or assume external facts."""
 
         logger.info(f"[GROQ] Generation started | Model: {llm_service.model}")
-        answer = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.2)
+        answer = await llm_service.generate(
+            prompt=prompt,
+            system=SYSTEM_PROMPT_BASE,
+            temperature=0.2,
+            max_tokens=settings.RAG_ASK_MAX_TOKENS,
+            debug_label="ask",
+        )
         logger.info("[GROQ] Generation completed")
 
         return {
@@ -929,71 +941,53 @@ Provide a well-structured, comprehensive, and grounded answer to the user's ques
         timestamp_note = TIMESTAMP_INSTRUCTION if chunks_have_timestamps(chunks) else ""
         sources = extract_sources_from_chunks(chunks)
 
-        if chunks_have_timestamps(chunks):
-            prompt = f"""VIDEO TITLE: {title}
-
-RETRIEVED TRANSCRIPT CONTEXT:
-{context_str}
-{TIMESTAMP_INSTRUCTION}
-
-TASK:
-Create a structured study summary of this video based EXCLUSIVELY on the transcript context above.
-Summarise what the speaker actually says. Do NOT add general knowledge about the topic that is not in the transcript.
-- Do NOT use decorative emojis.
-- Do NOT use horizontal divider lines (--- or ===).
-- Use clean numbered sections:
-
-{title} - Video Summary
-
-1. Overview
-[Short overview of what the video covers]
-
-2. Main Topics
-[Bullet list of the main topics in the order they are discussed, each with its timestamp]
-
-3. Key Takeaways
-[Clear bullet points of the primary insights, with timestamps]
-
-4. Important Explanations
-[The key explanations or arguments the speaker gives, with timestamps]
-
-5. Timestamp References
-[List of timestamp - topic pairs taken from the context tags]
-
-Ensure every point is directly supported by the transcript."""
-        else:
-            prompt = f"""DOCUMENT TITLE: {title}
+        prompt = f"""DOCUMENT TITLE: {title}
 
 RETRIEVED KNOWLEDGE CONTEXT:
 {context_str}
+{timestamp_note}
 
 TASK:
-Create a clear, concise, and structured academic study summary based EXCLUSIVELY on the context provided.
-- Do NOT use decorative emojis (no 📌, 💡, ⚡, 🔑).
-- Do NOT use horizontal divider lines (--- or ===).
-- Use clean numbered sections:
+Produce a well-structured revision summary based EXCLUSIVELY on the retrieved knowledge context above.
+Do NOT invent missing facts. Preserve the exact terminology and meaning of the source material.
+Render any mathematical formulas using standard LaTeX notation ($...$ for inline, $$...$$ for display equations).
+Include source page references or transcript timestamps [MM:SS] next to key points when available.
 
-{title} - Study Summary
+REQUIRED STRUCTURE IN CLEAN MARKDOWN:
+# {title} - Revision Summary
 
-1. Overview
-[Concise executive overview of the subject matter]
+## 1. Overview
+[Topic title, core scope, and concise executive overview of the subject matter]
 
-2. Main Concepts and Important Points
-[Bullet points ("- ") covering the primary ideas, in the order the source presents them]
+## 2. Main Concepts & Explanations
+[Detailed explanation of the primary concepts, mechanisms, and principles presented in the source]
 
-3. Key Terms and Definitions
-[Bullet points ("- Term: definition") for terms the source defines. Omit the section if there are none.]
+## 3. Important Definitions
+[Key technical terms and their formal definitions directly from the source]
 
-4. Important Examples
-[Examples, cases or worked problems from the source. Omit the section if there are none.]
+## 4. Key Formulas, Notation & Technical Rules
+[Formulas, mathematical equations, or technical syntax present in the source, rendered in LaTeX. State "No formulas in source" if none.]
 
-5. Conclusions and Quick Revision
-[High-yield points to remember for revision and exams]
+## 5. Examples & Comparisons
+[Concrete examples, comparisons, or worked walkthroughs given in the source]
 
-Ensure every point is directly supported by the context."""
+## 6. Important Conclusions
+[High-yield conclusions and critical takeaways]
+
+## 7. Revision Checklist
+- [ ] [Key testable fact/concept 1]
+- [ ] [Key testable fact/concept 2]
+- [ ] [Key testable fact/concept 3]
+"""
 
         logger.info(f"[GROQ] Generation started | Model: {llm_service.model}")
-        raw_summary = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.2, max_tokens=2500)
+        raw_summary = await llm_service.generate(
+            prompt=prompt,
+            system=SYSTEM_PROMPT_BASE,
+            temperature=0.2,
+            max_tokens=settings.RAG_SUMMARY_MAX_TOKENS,
+            debug_label="summary",
+        )
         summary_text = validate_document_output(clean_academic_notes(raw_summary), "summary")
         logger.info("[GROQ] Generation completed")
         return {
@@ -1016,101 +1010,57 @@ Ensure every point is directly supported by the context."""
         timestamp_note = TIMESTAMP_INSTRUCTION if chunks_have_timestamps(chunks) else ""
         sources = extract_sources_from_chunks(chunks)
 
-        if chunks_have_timestamps(chunks):
-            prompt = f"""VIDEO TITLE: {title}
-
-RETRIEVED TRANSCRIPT CONTEXT:
-{context_str}
-{TIMESTAMP_INSTRUCTION}
-
-TASK:
-Generate structured academic study notes from this video based EXCLUSIVELY on the transcript context above.
-Do NOT add facts, examples, or definitions that the speaker does not give.
-
-CRITICAL FORMATTING RULES:
-1. Do NOT use markdown heading hashes (## or ###).
-2. Do NOT use bold markdown asterisks (** or ***).
-3. Do NOT use backticks.
-4. Do NOT use decorative emojis.
-5. Do NOT use horizontal divider lines (--- or ===).
-6. Use numbered sections and subsection headers (1. , 1.1 , 2. , 2.1).
-
-REQUIRED STRUCTURE:
-{title}
-
-1. Topics Covered
-1.1 [Topic] [timestamp]
-[Subtopics and explanation as given in the video]
-
-2. Definitions
-[Terms the speaker defines, with timestamps]
-
-3. Important Concepts
-[Core ideas explained in the video, with timestamps]
-
-4. Key Points
-[High-yield points for revision, with timestamps]
-
-5. Examples From the Video
-[Only examples the speaker actually gives, with timestamps. Write "No examples given" if none.]
-
-6. Timestamp References
-[Timestamp - topic list taken from the context tags]
-
-Maintain absolute fidelity to the transcript."""
-        else:
-            prompt = f"""DOCUMENT TITLE: {title}
+        prompt = f"""DOCUMENT TITLE: {title}
 
 RETRIEVED KNOWLEDGE CONTEXT:
 {context_str}
+{timestamp_note}
 
 TASK:
-Generate comprehensive, in-depth academic study notes based EXCLUSIVELY on the provided context.
-The output must look like professionally prepared university lecture notes.
+Produce structured, comprehensive academic study notes based EXCLUSIVELY on the retrieved knowledge context above.
+Do NOT invent missing facts. Maintain absolute fidelity to the source material.
+Render any mathematical formulas using standard LaTeX notation ($...$ for inline, $$...$$ for display equations).
+Include source page references or transcript timestamps [MM:SS] next to points when available.
 
-CRITICAL FORMATTING RULES:
-1. Do NOT use markdown heading hashes (## or ###).
-2. Do NOT use bold markdown asterisks (** or ***).
-3. Do NOT use backticks around function names or text.
-4. Do NOT use decorative emojis (no 📖, 🧠, 📝, 🔬, ⚠️, 🎯).
-5. Do NOT use horizontal divider lines (--- or ===).
-6. Use numbered sections and subsection headers (1. , 1.1 , 2. , 2.1).
+REQUIRED STRUCTURE IN CLEAN MARKDOWN:
+# {title} - Academic Study Notes
 
-REQUIRED STRUCTURE:
-{title}
+## 1. Introduction & Overview
+[Detailed introduction and structured roadmap of the topics covered]
 
-1. Introduction and Overview
-[Detailed introduction to the domain/topics covered]
+## 2. Deep Explanations & Mechanisms
+### 2.1 [First Primary Concept]
+[In-depth breakdown of concepts, processes, and mechanisms]
+### 2.2 [Second Primary Concept]
+[In-depth breakdown of concepts, processes, and mechanisms]
 
-2. Core Concepts and Principles
-2.1 [First Primary Concept]
-[Explanation with exact technical details and functions intact]
-2.2 [Second Primary Concept]
-[Explanation with exact technical details and functions intact]
+## 3. Definitions & Technical Terminology
+[Bullet points: **Term**: Precise definition grounded in the source]
 
-3. Definitions and Terminology
-[Key terms and concise definition paragraphs]
+## 4. Key Formulas, Notation & Technical Syntax
+[Mathematical equations in LaTeX, algorithmic formulas, or technical rules from the source]
 
-4. Detailed Explanations, Formulas and Examples
-[Step-by-step breakdown of processes, any formulas exactly as written, and examples present in the text]
+## 5. Worked Examples & Process Breakdown
+[Step-by-step examples, code snippets, or comparative contrasts directly from the source]
 
-5. Critical Points and Best Practices
-[Key nuances, edge cases, and comparison points]
-
-6. Quick Revision Checklist
-[High-yield summary points for rapid review]
-
-Maintain absolute fidelity to the source context."""
+## 6. Exam-Oriented Revision Points & Pitfalls
+[High-yield exam insights, critical distinctions, common misconceptions, and model answers]
+"""
 
         logger.info(f"[GROQ] Generation started | Model: {llm_service.model}")
-        raw_notes = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, temperature=0.2, max_tokens=4000)
+        raw_notes = await llm_service.generate(
+            prompt=prompt,
+            system=SYSTEM_PROMPT_BASE,
+            temperature=0.2,
+            max_tokens=settings.RAG_NOTES_MAX_TOKENS,
+            debug_label="notes",
+        )
         notes_text = validate_document_output(clean_academic_notes(raw_notes), "notes")
         logger.info("[GROQ] Generation completed")
         return {
             "title": f"Notes: {title}",
             "content": notes_text,
             "sources": sources,
-            "coverage": {"chunks": len(chunks), "sections": document["sections"], "condensed": document["condensed"]},
         }
 
     async def generate_quiz(
@@ -1133,7 +1083,7 @@ Maintain absolute fidelity to the source context."""
 
         all_valid_questions: List[Dict[str, Any]] = []
         attempt = 0
-        max_attempts = 15
+        max_attempts = 5
 
         logger.info(
             "[QUIZ START] requestedCount=%s, difficulty=%s, questionType=%s, sourceChunks=%s",
@@ -1177,6 +1127,8 @@ Maintain absolute fidelity to the source context."""
                 )
             except Exception as error:
                 logger.warning("[QUIZ] Batch %s encountered error: %s", attempt, error)
+                if "All AI text generation providers failed" in str(error):
+                    raise
                 batch_result = {"rawQuestions": [], "questions": [], "rejections": [{"question": "N/A", "reason": str(error)}]}
 
             raw_questions = batch_result.get("rawQuestions", [])
@@ -1437,60 +1389,28 @@ Return ONLY valid JSON in this exact structure:
         timestamp_note = TIMESTAMP_INSTRUCTION if chunks_have_timestamps(chunks) else ""
         sources = extract_sources_from_chunks(chunks)
 
-        json_schema_desc = """
-Return ONLY valid JSON with this exact structure:
-{
-  "title": "Examination Paper Title",
-  "totalMarks": 60,
-  "difficulty": "Medium",
-  "timeAllowedMinutes": 90,
-  "sections": [
-    {
-      "sectionName": "Section A: Objective Knowledge (10 Marks)",
-      "instructions": "Answer all questions. Each carries 2 marks.",
-      "marksPerQuestion": 2,
-      "questions": [
-        {
-          "id": "A1",
-          "question": "Question text?",
-          "type": "MCQ",
-          "options": ["Option A", "Option B", "Option C", "Option D"],
-          "correctAnswer": "Option A",
-          "rubric": "Full marks for selecting correct choice."
-        }
-      ]
-    },
-    {
-      "sectionName": "Section B: Short Conceptual Questions (20 Marks)",
-      "instructions": "Answer all questions. Each carries 5 marks.",
-      "marksPerQuestion": 5,
-      "questions": [
-        {
-          "id": "B1",
-          "question": "Explain concept X and list two advantages.",
-          "type": "SHORT_ANSWER",
-          "expectedAnswer": "Key points describing concept X and advantages.",
-          "rubric": "3 marks for accurate explanation, 2 marks for valid advantages."
-        }
-      ]
-    },
-    {
-      "sectionName": "Section C: Comprehensive Analytical Questions (30 Marks)",
-      "instructions": "Answer all questions. Each carries 10 marks.",
-      "marksPerQuestion": 10,
-      "questions": [
-        {
-          "id": "C1",
-          "question": "Deep analytical question...",
-          "type": "LONG_ANSWER",
-          "expectedAnswer": "Comprehensive model answer.",
-          "rubric": "4 marks architecture, 3 marks comparison, 3 marks synthesis."
-        }
-      ]
-    }
-  ]
-}
-"""
+        # Dynamically scale section marks to match total_marks
+        sec_a_marks = max(2, int(round(total_marks * 0.2)))
+        sec_b_marks = max(4, int(round(total_marks * 0.4)))
+        sec_c_marks = total_marks - sec_a_marks - sec_b_marks
+        if sec_c_marks < 2:
+            sec_c_marks = max(2, total_marks // 3)
+            sec_b_marks = max(2, (total_marks - sec_c_marks) // 2)
+            sec_a_marks = total_marks - sec_b_marks - sec_c_marks
+
+        sec_a_q_marks = 2 if sec_a_marks >= 4 else 1
+        sec_a_q_count = max(1, sec_a_marks // sec_a_q_marks)
+        sec_a_marks = sec_a_q_count * sec_a_q_marks
+
+        sec_b_q_marks = 5 if sec_b_marks >= 10 else (3 if sec_b_marks >= 6 else 2)
+        sec_b_q_count = max(1, sec_b_marks // sec_b_q_marks)
+        sec_b_marks = sec_b_q_count * sec_b_q_marks
+
+        sec_c_marks = max(1, total_marks - sec_a_marks - sec_b_marks)
+        sec_c_q_marks = max(5, sec_c_marks // 2) if sec_c_marks >= 10 else sec_c_marks
+        sec_c_q_count = max(1, sec_c_marks // sec_c_q_marks)
+
+        time_allowed = max(30, int(total_marks * 1.5))
 
         prompt = f"""DOCUMENT TITLE: {title}
 TOTAL MARKS: {total_marks}
@@ -1502,9 +1422,68 @@ RETRIEVED KNOWLEDGE CONTEXT:
 
 TASK:
 Create a rigorous, professionally formatted academic examination paper based strictly on the provided context.
-Every question must carry a "marks" value and the marks of all questions must add up to exactly {total_marks}.
+Every question must carry a "marks" value and the marks of all questions across all sections must add up to exactly {total_marks}.
 
-{json_schema_desc}"""
+SECTION SPECIFICATIONS:
+- Section A: Objective Knowledge ({sec_a_marks} Marks total, {sec_a_q_count} questions of {sec_a_q_marks} marks each)
+- Section B: Short Conceptual Questions ({sec_b_marks} Marks total, {sec_b_q_count} questions of {sec_b_q_marks} marks each)
+- Section C: Comprehensive Analytical Questions ({sec_c_marks} Marks total, {sec_c_q_count} questions)
+
+Return ONLY valid JSON with this exact structure:
+{{
+  "title": "{title} Examination Paper",
+  "totalMarks": {total_marks},
+  "difficulty": "{difficulty}",
+  "timeAllowedMinutes": {time_allowed},
+  "sections": [
+    {{
+      "sectionName": "Section A: Objective Knowledge ({sec_a_marks} Marks)",
+      "instructions": "Answer all questions. Each carries {sec_a_q_marks} marks.",
+      "marksPerQuestion": {sec_a_q_marks},
+      "questions": [
+        {{
+          "id": "A1",
+          "question": "Question text?",
+          "type": "MCQ",
+          "options": ["Option A", "Option B", "Option C", "Option D"],
+          "correctAnswer": "Option A",
+          "marks": {sec_a_q_marks},
+          "rubric": "Full marks for selecting correct choice."
+        }}
+      ]
+    }},
+    {{
+      "sectionName": "Section B: Short Conceptual Questions ({sec_b_marks} Marks)",
+      "instructions": "Answer all questions. Each carries {sec_b_q_marks} marks.",
+      "marksPerQuestion": {sec_b_q_marks},
+      "questions": [
+        {{
+          "id": "B1",
+          "question": "Conceptual question text...",
+          "type": "SHORT_ANSWER",
+          "expectedAnswer": "Model solution...",
+          "marks": {sec_b_q_marks},
+          "rubric": "Marking scheme breakdown."
+        }}
+      ]
+    }},
+    {{
+      "sectionName": "Section C: Comprehensive Analytical Questions ({sec_c_marks} Marks)",
+      "instructions": "Answer all questions. Marks as indicated.",
+      "marksPerQuestion": {sec_c_q_marks},
+      "questions": [
+        {{
+          "id": "C1",
+          "question": "In-depth analytical or numerical question...",
+          "type": "LONG_ANSWER",
+          "expectedAnswer": "Comprehensive model solution...",
+          "marks": {sec_c_q_marks},
+          "rubric": "Step-by-step marking rubric."
+        }}
+      ]
+    }}
+  ]
+}}"""
 
         raw_resp = await llm_service.generate(prompt=prompt, system=SYSTEM_PROMPT_BASE, format_json=True, temperature=0.3, max_tokens=1500)
         try:
@@ -1600,6 +1579,7 @@ Questions should test conceptual clarity, real-world understanding, and technica
         rubric: Optional[str] = None,
         max_marks: int = 5
     ) -> Dict[str, Any]:
+        rubric_val = rubric if rubric else "Grade based on accuracy and coverage of key points."
         prompt = f"""QUESTION:
 {question}
 
@@ -1607,7 +1587,7 @@ EXPECTED ANSWER / KEY POINTS:
 {expected_answer}
 
 RUBRIC:
-{rubric or 'Grade based on accuracy and coverage of key points.'}
+{rubric_val}
 
 MAXIMUM MARKS:
 {max_marks}

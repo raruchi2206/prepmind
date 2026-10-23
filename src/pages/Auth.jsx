@@ -38,7 +38,7 @@ function AuthShell({ theme, children }) {
             </p>
             <p className="flex items-center justify-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--primary)]" />
-              Quizzes, notes, and viva from one upload.
+              Summaries, notes, quizzes, and Q&A from one upload.
             </p>
             <p className="flex items-center justify-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--primary)]" />

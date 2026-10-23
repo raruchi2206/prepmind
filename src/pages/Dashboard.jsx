@@ -24,18 +24,6 @@ const capabilities = [
     path: "/create?mode=quiz",
   },
   {
-    label: "PRACTICE PAPER",
-    sub: "Generate a complete practice paper.",
-    icon: "◻",
-    path: "/create?mode=paper",
-  },
-  {
-    label: "VIVA",
-    sub: "Practice an oral examination.",
-    icon: "◈",
-    path: "/create?mode=viva",
-  },
-  {
     label: "ASK",
     sub: "Ask anything about your knowledge.",
     icon: "⌁",
@@ -55,8 +43,8 @@ const activityPaths = {
   SUMMARY: "/summary",
   NOTES: "/notes",
   QUIZ: "/quiz",
-  PRACTICE_PAPER: "/practice-paper",
-  VIVA: "/viva",
+  PRACTICE_PAPER: "/create",
+  VIVA: "/create",
 };
 
 function relativeDay(date) {
@@ -124,11 +112,6 @@ export default function Dashboard({ theme }) {
   const sourcePerformance = progressData?.topicPerformance?.slice(0, 4) || [];
   const totals = progressData?.totals;
 
-  const totalChunks = knowledgeList.reduce(
-    (acc, k) => acc + (k.metadata?.chunkCount || 0),
-    0,
-  );
-
   return (
     <div
       className="page-shell"
@@ -162,8 +145,8 @@ export default function Dashboard({ theme }) {
               </h2>
               <p className="mt-2 text-sm text-[var(--text-secondary)]">
                 {knowledgeList.length > 0
-                  ? `${knowledgeList.length} ${knowledgeList.length === 1 ? "source" : "sources"} · ${totalChunks} chunks indexed`
-                  : "Upload PDF, DOCX, PPTX, or TXT documents to power your AI assessment."}
+                  ? `${knowledgeList.length} ${knowledgeList.length === 1 ? "source" : "sources"} ready for learning`
+                  : "Upload PDF, DOCX, PPTX, or TXT documents to power your AI study session."}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -240,9 +223,9 @@ export default function Dashboard({ theme }) {
               ) : (
                 <div className="space-y-3">
                   {knowledgeList.slice(0, 4).map((item) => {
-                    const chunkCount = item.metadata?.chunkCount ?? 0;
+                    const typeLabel = item.type === "YOUTUBE" ? "YouTube" : item.type;
                     const pageCount = item.metadata?.pageCount ?? 0;
-                    const metaText = pageCount > 0 ? `${pageCount} pages · ${chunkCount} chunks` : `${chunkCount} chunks`;
+                    const metaText = pageCount > 0 ? `${typeLabel} · ${pageCount} pages` : `${typeLabel} material`;
 
                     return (
                       <div

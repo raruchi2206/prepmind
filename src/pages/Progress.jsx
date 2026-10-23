@@ -15,8 +15,8 @@ const generatedPaths = {
   SUMMARY: "/summary",
   NOTES: "/notes",
   QUIZ: "/quiz",
-  PRACTICE_PAPER: "/practice-paper",
-  VIVA: "/viva",
+  PRACTICE_PAPER: "/create",
+  VIVA: "/create",
 };
 
 function StatTile({ label, value, sub }) {
@@ -103,13 +103,12 @@ export default function Progress({ theme }) {
               />
             </div>
 
-            <div className="panel grid grid-cols-2 gap-4 p-5 sm:grid-cols-5">
+            <div className="panel grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
               {[
                 ["Summaries", t.summaries],
                 ["Notes", t.notes],
                 ["Quizzes", t.quizzesGenerated],
-                ["Practice papers", t.practicePapers],
-                ["Viva sets", t.vivas],
+                ["Quiz Attempts", t.attempts],
               ].map(([label, value]) => (
                 <div key={label}>
                   <p className="font-display text-2xl text-[var(--text-primary)]">{value}</p>
@@ -149,7 +148,7 @@ export default function Progress({ theme }) {
                   </div>
                 ) : (
                   <div className="panel p-6 text-sm text-[var(--text-secondary)]">
-                    Score trends and per-source performance appear after your first quiz, practice paper or viva attempt.{" "}
+                    Score trends and per-source performance appear after your first quiz attempt.{" "}
                     <Link to="/create?mode=quiz" className="text-[var(--text-primary)] underline">
                       Take a quiz
                     </Link>
